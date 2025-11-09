@@ -1,16 +1,16 @@
 modLoader="javafml"
 loaderVersion="[47,)"
 issueTrackerURL=""
-license="MIT"
+license="See LICENSE file"
 
 [[mods]]
 modId="fullfud"
 version="${version}"
-displayName="Fullfud"
+displayName="Shadedwar"
 credits=""
 authors="fullfud"
 description='''
-Simple foundation for the Fullfud mod.
+Remote Shahed drone gameplay module.
 '''
 
 [[dependencies.fullfud]]
