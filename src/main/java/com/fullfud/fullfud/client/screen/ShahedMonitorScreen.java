@@ -39,7 +39,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     private boolean descendPressed;
     private boolean strafeLeftPressed;
     private boolean strafeRightPressed;
-    private boolean boostPressed;
     private boolean increasePowerPressed;
     private boolean decreasePowerPressed;
     private final SmoothedStatus smoothedStatus = new SmoothedStatus();
@@ -228,8 +227,8 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
     private void drawTelemetry(final GuiGraphics graphics, final int baseX, final int startY, final ShahedStatusPacket status) {
         int lineY = startY;
-        final float airspeedKph = status.airSpeed() * 3.6F * 2.0F;
-        final float groundSpeedKph = status.groundSpeed() * 3.6F * 2.0F;
+        final float airspeedKph = status.airSpeed() * 3.6F;
+        final float groundSpeedKph = status.groundSpeed() * 3.6F;
         graphics.drawString(font, Component.literal(String.format("IAS %3.0f km/h", airspeedKph)), baseX, lineY, 0xFFB8F2FF, false);
         lineY += 12;
         graphics.drawString(font, Component.literal(String.format("GS %3.0f km/h", groundSpeedKph)), baseX, lineY, 0xFF9BE6C8, false);
@@ -334,7 +333,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             thrustDelta -= 0.02F;
         }
 
-        ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, strafe, vertical, thrustDelta, boostPressed);
+        ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, strafe, vertical, thrustDelta);
     }
 
     private static float boolValue(final boolean down) {
@@ -402,7 +401,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         descendPressed = false;
         strafeLeftPressed = false;
         strafeRightPressed = false;
-        boostPressed = false;
         increasePowerPressed = false;
         decreasePowerPressed = false;
     }
@@ -445,10 +443,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
         if (matches(options.keyRight, keyCode, scanCode)) {
             strafeRightPressed = pressed;
-            return true;
-        }
-        if (matches(options.keySprint, keyCode, scanCode)) {
-            boostPressed = pressed;
             return true;
         }
         if (matches(ShahedClientHandler.getPowerUpKey(), keyCode, scanCode)) {

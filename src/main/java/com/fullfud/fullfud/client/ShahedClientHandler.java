@@ -101,11 +101,11 @@ public final class ShahedClientHandler {
         return System.currentTimeMillis() - lastStatusTimestamp <= timeoutMs;
     }
 
-    public static void sendControlPacket(final UUID droneId, final float forward, final float strafe, final float vertical, final float thrustDelta, final boolean boost) {
+    public static void sendControlPacket(final UUID droneId, final float forward, final float strafe, final float vertical, final float thrustDelta) {
         if (droneId == null) {
             return;
         }
-        FullfudNetwork.getChannel().sendToServer(new ShahedControlPacket(droneId, forward, strafe, vertical, thrustDelta, boost));
+        FullfudNetwork.getChannel().sendToServer(new ShahedControlPacket(droneId, forward, strafe, vertical, thrustDelta));
     }
 
     private static void onClientTick(final TickEvent.ClientTickEvent event) {

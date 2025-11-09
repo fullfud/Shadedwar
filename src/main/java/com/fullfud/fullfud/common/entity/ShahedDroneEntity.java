@@ -89,15 +89,15 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double BASE_MASS_KG = 210.0D;
     private static final double FUEL_CAPACITY_KG = 45.0D;
     private static final double FUEL_CONSUMPTION_PER_SEC = 0.32D;
-    private static final double MAX_THRUST_FORCE = 600.0D;
-    private static final double BOOST_MULTIPLIER = 1.15D;
+    private static final double MAX_THRUST_FORCE = 930.0D;
+    private static final double THRUST_CURVE_EXPONENT = 2.0D;
     private static final double RHO_SEA_LEVEL = 1.225D;
     private static final double ATMOSPHERE_SCALE_HEIGHT = 8500.0D;
     private static final double WING_AREA = 3.3D;
     private static final double ASPECT_RATIO = 4.6D;
     private static final double CL_ALPHA = 5.0D;
     private static final double CL_MAX = 1.5D;
-    private static final double CL_ZERO = 0.20D;
+    private static final double CL_ZERO = 0.088211D;
     private static final double CD_MIN = 0.052D;
     private static final double DRAG_FACTOR = 0.055D;
     private static final double CY_BETA = -0.85D;
@@ -110,7 +110,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double PITCH_ACCEL_LIMIT = 540.0D;
     private static final double HEADING_HOLD_GAIN = 0.0D;
     private static final double GROUND_FRICTION = 0.62D;
-    private static final double MAX_AIRSPEED = 36.111D; 
+    private static final double MAX_AIRSPEED = 72.222D; 
+    private static final double INITIAL_LAUNCH_SPEED = 55.5D;
     private static final double ENGINE_IDLE_THRUST = 0.0D;
     private static final double ENGINE_SPOOL_RATE = 0.05D;
     private static final double MAX_ELEVATOR_AOA = Math.toRadians(11.0D);
@@ -134,7 +135,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private float controlVertical;
     private float resolvedVerticalInput;
     private Vec3 linearVelocity = Vec3.ZERO;
-    private boolean boostActive;
     private int controlTimeout;
     private double yawRate;
     private double pitchRate;
@@ -231,14 +231,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             controlStrafe = 0.0F;
             controlVertical = 0.0F;
             resolvedVerticalInput = 0.0F;
-            boostActive = false;
         }
     }
 
     private void updateFlight() {
         final double dt = TICK_SECONDS;
         float throttle = Mth.clamp(getThrust(), 0.0F, 1.0F);
-        boolean boost = boostActive && throttle > 0.01F;
         if (fuelMass > 0.0D && throttle > 0.0F) {
             final double burn = throttle * FUEL_CONSUMPTION_PER_SEC * dt;
             fuelMass = Math.max(0.0D, fuelMass - burn);
@@ -249,8 +247,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 throttle = 0.0F;
                 setThrust(0.0F);
             }
-            boost = false;
-            boostActive = false;
         }
         final double totalMass = BASE_MASS_KG + fuelMass;
 
@@ -269,24 +265,24 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final double q = 0.5D * airDensity * speed * speed;
 
         engineOutput += (throttle - engineOutput) * ENGINE_SPOOL_RATE;
-        final double thrustMagnitude = fuelMass <= 0.0D ? 0.0D : computeEffectiveThrust(engineOutput, boost);
+        final double thrustMagnitude = fuelMass <= 0.0D ? 0.0D : computeEffectiveThrust(engineOutput);
 
         final double forwardSpeedBody = linearVelocity.dot(forward);
         final double verticalSpeedBody = linearVelocity.dot(up);
         final double lateralSpeedBody = linearVelocity.dot(right);
-        final double baseAoa = Math.atan2(verticalSpeedBody, Math.max(1.0D, forwardSpeedBody));
-        final double orientationBias = Math.toRadians(-6.0D + 8.0D * throttle) + Math.toRadians(-bodyPitch) * 0.18D;
+        final double baseAoa = Math.atan2(-verticalSpeedBody, Math.max(1.0D, forwardSpeedBody));
+        final double orientationBias = Math.toRadians(-4.0D + 4.0D * throttle) + Math.toRadians(-bodyPitch) * 0.18D;
         this.resolvedVerticalInput = resolveVerticalInput(baseAoa, throttle);
 
         final double authority = 0.2D + 0.8D * throttle;
-        final double trimmedInput = Mth.clamp(-resolvedVerticalInput * authority, -1.0D, 1.0D);
+        final double trimmedInput = Mth.clamp(resolvedVerticalInput * authority, -1.0D, 1.0D);
 
         double glideTrim = 0.0D;
-        final double idleThreshold = 0.18D;
-        if (Math.abs(controlVertical) < 0.05F && throttle < idleThreshold && linearVelocity.y > 0.05D) {
+        final double idleThreshold = 0.25D;
+        if (Math.abs(controlVertical) < 0.05F && throttle < idleThreshold) {
             final double idleFactor = (idleThreshold - throttle) / idleThreshold;
             final double climbRatio = Mth.clamp(linearVelocity.y / 10.0D, 0.0D, 1.0D);
-            glideTrim = idleFactor * climbRatio; 
+            glideTrim = idleFactor * (0.2D + 0.8D * climbRatio);
         }
 
         final double effectiveAoa = baseAoa + orientationBias + trimmedInput * MAX_ELEVATOR_AOA - glideTrim * MAX_ELEVATOR_AOA;
@@ -367,7 +363,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
 
         final double trim = Math.min(1.0D, aoaExcess / Math.toRadians(24.0D)) * idleFactor;
-        return (float) Mth.clamp(trim, 0.0D, 1.0D);
+        return (float) -Mth.clamp(trim, 0.0D, 1.0D);
     }
 
     private OrientationBasis orientationBasis() {
@@ -413,11 +409,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         return cl * stallFactor * stallFactor;
     }
 
-    private double computeEffectiveThrust(final double engineLevel, final boolean boost) {
-        double thrust = ENGINE_IDLE_THRUST + engineLevel * (MAX_THRUST_FORCE - ENGINE_IDLE_THRUST);
-        if (boost) {
-            thrust *= BOOST_MULTIPLIER;
-        }
+    private double computeEffectiveThrust(final double engineLevel) {
+        final double normalizedLevel = Mth.clamp(engineLevel, 0.0D, 1.0D);
+        final double throttleResponse = Math.pow(normalizedLevel, THRUST_CURVE_EXPONENT);
+        double thrust = ENGINE_IDLE_THRUST + throttleResponse * (MAX_THRUST_FORCE - ENGINE_IDLE_THRUST);
         if (bodyPitch < -4.0D) {
             final double climbRatio = Mth.clamp((-bodyPitch - 4.0D) / 22.0D, 0.0D, 1.0D);
             thrust *= Mth.lerp(1.0D, 0.55D, climbRatio);
@@ -588,7 +583,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.controlForward = Mth.clamp(packet.forward(), -1.0F, 1.0F);
         this.controlStrafe = Mth.clamp(packet.strafe(), -1.0F, 1.0F);
         this.controlVertical = Mth.clamp(packet.vertical(), -1.0F, 1.0F);
-        this.boostActive = packet.boost();
         this.controlTimeout = CONTROL_TIMEOUT_TICKS;
 
         final float newThrust = Mth.clamp(getThrust() + packet.thrustDelta(), 0.0F, 1.0F);
@@ -1025,7 +1019,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         if (!remoteInitialized) {
             ensureFlightAltitude();
-            this.linearVelocity = forwardGroundVector().scale(24.0D);
+            final double launchSpeed = Math.min(MAX_AIRSPEED * 0.95D, INITIAL_LAUNCH_SPEED);
+            this.linearVelocity = forwardGroundVector().scale(launchSpeed);
+            this.bodyPitch = 0.0D;
+            this.setXRot(0.0F);
+            this.visualPitch = 0.0D;
+            this.prevVisualPitch = 0.0D;
             this.setDeltaMovement(this.linearVelocity.scale(TICK_SECONDS));
             setThrust(1.0F);
             this.engineOutput = 1.0D;
