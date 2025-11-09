@@ -95,7 +95,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double ATMOSPHERE_SCALE_HEIGHT = 8500.0D;
     private static final double WING_AREA = 3.3D;
     private static final double ASPECT_RATIO = 4.6D;
-    private static final double CL_ALPHA = 5.0D;
+    private static final double CL_ALPHA = 2.5D;
     private static final double CL_MAX = 1.5D;
     private static final double CL_ZERO = 0.088211D;
     private static final double CD_MIN = 0.052D;
