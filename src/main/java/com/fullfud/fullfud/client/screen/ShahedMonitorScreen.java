@@ -352,6 +352,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
                 previousCamera = minecraft.getCameraEntity();
             }
             minecraft.setCameraEntity(drone);
+            minecraft.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
             cameraOverridden = true;
             hasCameraFeed = true;
         } else {
@@ -408,6 +409,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
     @Override
     public boolean keyPressed(final int keyCode, final int scanCode, final int modifiers) {
+        if (minecraft != null && minecraft.options.keyTogglePerspective.matches(keyCode, scanCode)) {
+            return true;
+        }
         if (handleKeyChange(keyCode, scanCode, true)) {
             return true;
         }

@@ -35,11 +35,15 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.entity.Pose;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
@@ -47,6 +51,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
@@ -121,6 +126,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_LINEAR_VELOCITY = "LinearVelocity";
     private static final String TAG_FUEL = "FuelMass";
     private static final TicketType<Integer> SHAHED_TICKET = TicketType.create("fullfud_shahed", Integer::compareTo, 4);
+    private static final EntityDimensions SHAHEED_DIMENSIONS = EntityDimensions.scalable(3.0F, 1.0F);
 
     private final Map<UUID, Integer> viewerDistances = new HashMap<>();
     private float controlForward;
@@ -180,6 +186,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.visualRoll = 0.0D;
         this.prevVisualRoll = 0.0D;
         this.remoteInitialized = false;
+        updateBoundingBox();
+        this.refreshDimensions();
     }
 
     public static Optional<ShahedDroneEntity> find(final ServerLevel level, final UUID uuid) {
@@ -309,6 +317,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final Vec3 displacement = linearVelocity.scale(dt);
         this.setDeltaMovement(displacement);
         this.move(MoverType.SELF, displacement);
+        updateBoundingBox();
         resolveCollisionVelocity();
 
         final double updatedHorizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
@@ -478,6 +487,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.visualPitch = bodyPitch;
         this.prevVisualPitch = bodyPitch;
         resetStrafeHistory();
+        updateBoundingBox();
     }
 
     @Override
@@ -504,6 +514,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.visualPitch = bodyPitch;
         this.prevVisualPitch = bodyPitch;
         this.remoteInitialized = tag.getBoolean(TAG_REMOTE_INIT);
+        updateBoundingBox();
     }
 
     @Override
@@ -695,6 +706,38 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         strafeHistorySize = 0;
     }
 
+    private void updateBoundingBox() {
+        final float width = 3.0F;
+        final float height = 1.0F;
+        final float halfWidth = width * 0.5F;
+        final Vec3 center = position();
+        final double yawRad = Math.toRadians(getYRot());
+        final double cos = Math.cos(yawRad);
+        final double sin = Math.sin(yawRad);
+        final Vec3[] corners = new Vec3[] {
+            new Vec3(-halfWidth, 0, -halfWidth),
+            new Vec3(halfWidth, 0, -halfWidth),
+            new Vec3(halfWidth, 0, halfWidth),
+            new Vec3(-halfWidth, 0, halfWidth)
+        };
+        double minX = Double.POSITIVE_INFINITY;
+        double minZ = Double.POSITIVE_INFINITY;
+        double maxX = Double.NEGATIVE_INFINITY;
+        double maxZ = Double.NEGATIVE_INFINITY;
+        for (Vec3 corner : corners) {
+            final double rotX = corner.x * cos - corner.z * sin;
+            final double rotZ = corner.x * sin + corner.z * cos;
+            minX = Math.min(minX, center.x + rotX);
+            minZ = Math.min(minZ, center.z + rotZ);
+            maxX = Math.max(maxX, center.x + rotX);
+            maxZ = Math.max(maxZ, center.z + rotZ);
+        }
+        final double minY = getY();
+        final double maxY = getY() + height;
+        final AABB box = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+        setBoundingBox(box);
+    }
+
     @Override
     public void lerpTo(final double x, final double y, final double z, final float yaw, final float pitch, final int steps, final boolean teleport) {
         final int baseSteps = Math.max(steps, 1);
@@ -724,6 +767,22 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     public float getThrust() {
         return this.entityData.get(DATA_THRUST);
+    }
+
+    @Override
+    public EntityDimensions getDimensions(final Pose pose) {
+        return SHAHEED_DIMENSIONS;
+    }
+
+    @Override
+    public boolean hurt(final DamageSource source, final float amount) {
+        if (source.getDirectEntity() instanceof Projectile) {
+            if (!level().isClientSide()) {
+                detonate();
+            }
+            return true;
+        }
+        return super.hurt(source, amount);
     }
 
     @Override
@@ -888,6 +947,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         spawnSecondaryCharges();
         level().explode(this, getX(), getY(), getZ(), 10.0F, ExplosionInteraction.MOB);
+        applyBlastDamage();
         discard();
     }
 
@@ -896,7 +956,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
         final RandomSource random = serverLevel.getRandom();
-        for (int i = 0; i < 8; i++) {
+        for (int i = 0; i < 10; i++) {
             final PrimedTnt charge = EntityType.TNT.create(serverLevel);
             if (charge == null) {
                 continue;
@@ -908,6 +968,26 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             charge.moveTo(getX() + offsetX, getY() + offsetY, getZ() + offsetZ, this.getYRot(), this.getXRot());
             charge.setFuse(0);
             serverLevel.addFreshEntity(charge);
+        }
+    }
+
+    private void applyBlastDamage() {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        final double radius = 20.0D;
+        final AABB area = new AABB(getX() - radius, getY() - 6.0D, getZ() - radius, getX() + radius, getY() + 6.0D, getZ() + radius);
+        final var damageSource = serverLevel.damageSources().explosion(this, this);
+        for (LivingEntity target : serverLevel.getEntitiesOfClass(LivingEntity.class, area)) {
+            if (target.isInvulnerableTo(damageSource)) {
+                continue;
+            }
+            final double distance = Math.sqrt(target.distanceToSqr(this));
+            if (distance <= 15.0D) {
+                target.hurt(damageSource, 100.0F);
+            } else if (distance <= 20.0D) {
+                target.hurt(damageSource, 50.0F);
+            }
         }
     }
 
