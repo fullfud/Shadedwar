@@ -1,0 +1,16 @@
+﻿{
+  "shahed.engine_start": {
+    "sounds": ["fullfud:shahed136_start"]
+  },
+  "shahed.engine_loop": {
+    "sounds": [
+      {
+        "name": "fullfud:shahed136_engine",
+        "stream": true
+      }
+    ]
+  },
+  "shahed.engine_end": {
+    "sounds": ["fullfud:shahed136_engine_end"]
+  }
+}

@@ -1,0 +1,16 @@
+.gradle/
+/build/
+/.idea/
+/.run/
+/out/
+/bin/
+/.classpath
+/.project
+/.settings/
+
+# System files
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.DS_Store
