@@ -39,6 +39,8 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     private boolean descendPressed;
     private boolean strafeLeftPressed;
     private boolean strafeRightPressed;
+    private boolean forwardPressed;
+    private boolean backPressed;
     private boolean increasePowerPressed;
     private boolean decreasePowerPressed;
     private final SmoothedStatus smoothedStatus = new SmoothedStatus();
@@ -61,6 +63,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             minecraft.options.hideGui = true;
             hudOverridden = true;
         }
+        if (menu.getTarget() == ShahedMonitorMenu.Target.FPV) {
+            ShahedClientHandler.onFpvScreenOpened(menu.getDroneId());
+        }
     }
 
     @Override
@@ -78,6 +83,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         super.removed();
         resetKeyStates();
         restoreCamera();
+        if (menu.getTarget() == ShahedMonitorMenu.Target.FPV) {
+            ShahedClientHandler.onFpvScreenClosed();
+        }
     }
 
     @Override
@@ -85,6 +93,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         super.onClose();
         restoreCamera();
         resetKeyStates();
+        if (menu.getTarget() == ShahedMonitorMenu.Target.FPV) {
+            ShahedClientHandler.onFpvScreenClosed();
+        }
     }
 
     @Override
@@ -162,15 +173,8 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             return;
         }
         final SmoothedStatusSnapshot smoothed = smoothedStatus.sample(status);
-
+        final boolean fpvMode = menu.getTarget() == ShahedMonitorMenu.Target.FPV;
         final int padding = 24;
-
-        final int infoWidth = 240;
-        final int infoHeight = 52;
-        drawOverlayPanel(graphics, padding - 10, padding - 10, infoWidth + 20, infoHeight + 20);
-        graphics.drawString(font, Component.literal(String.format("X %.1f  Z %.1f", smoothed.x(), smoothed.z())), padding, padding, 0xFFFFFFFF, false);
-        graphics.drawString(font, Component.literal(String.format("Y %.1f", smoothed.y())), padding, padding + 14, 0xFFE6E6E6, false);
-        graphics.drawString(font, Component.literal(String.format("Heading %.0f°", smoothed.yaw())), padding, padding + 28, 0xFFE6E6E6, false);
 
         final int powerPanelWidth = 240;
         final int powerPanelX = width - padding - powerPanelWidth;
@@ -179,31 +183,43 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         drawPowerBar(graphics, powerPanelX + 16, powerPanelY + 32, status.thrust());
 
         final float relativeYaw = computeRelativeYaw(smoothed.x(), smoothed.z());
-        drawCompass(graphics, width / 2, padding + 36, relativeYaw);
 
-        final int telemetryPanelWidth = 260;
-        final int telemetryPanelHeight = 96;
-        final int telemetryX = padding - 10;
-        final int telemetryY = height - padding - telemetryPanelHeight;
-        drawOverlayPanel(graphics, telemetryX, telemetryY, telemetryPanelWidth, telemetryPanelHeight);
-        drawTelemetry(graphics, telemetryX + 10, telemetryY + 12, status);
+        if (!fpvMode) {
+            final int infoWidth = 240;
+            final int infoHeight = 52;
+            drawOverlayPanel(graphics, padding - 10, padding - 10, infoWidth + 20, infoHeight + 20);
+            graphics.drawString(font, Component.literal(String.format("X %.1f  Z %.1f", smoothed.x(), smoothed.z())), padding, padding, 0xFFFFFFFF, false);
+            graphics.drawString(font, Component.literal(String.format("Y %.1f", smoothed.y())), padding, padding + 14, 0xFFE6E6E6, false);
+            graphics.drawString(font, Component.literal(String.format("Heading %.0f°", smoothed.yaw())), padding, padding + 28, 0xFFE6E6E6, false);
 
-        final int slipPanelWidth = 200;
-        final int slipPanelHeight = 52;
-        final int slipX = width - padding - slipPanelWidth;
-        final int slipY = height - padding - slipPanelHeight;
-        drawOverlayPanel(graphics, slipX, slipY, slipPanelWidth, slipPanelHeight);
-        drawSlipIndicator(graphics, slipX + 12, slipY + slipPanelHeight - 16, status.slipAngle());
+            drawCompass(graphics, width / 2, padding + 36, relativeYaw);
 
-        final ShahedDroneEntity drone = resolveDrone();
-        if (drone != null) {
-            final int previewBoxSize = 132;
-            final int previewBoxX = width - padding - previewBoxSize;
-            final int previewBoxY = powerPanelY + 70;
-            drawOverlayPanel(graphics, previewBoxX, previewBoxY, previewBoxSize, previewBoxSize);
-            graphics.drawString(font, Component.literal("Drone Preview"), previewBoxX + 8, previewBoxY + 8, 0xFF9BE6C8, false);
-            final int previewCenterY = previewBoxY + (previewBoxSize / 2) + font.lineHeight / 2;
-            drawDronePreview(graphics, previewBoxX + previewBoxSize / 2, previewCenterY, 20, drone, partialTick);
+            final int telemetryPanelWidth = 260;
+            final int telemetryPanelHeight = 96;
+            final int telemetryX = padding - 10;
+            final int telemetryY = height - padding - telemetryPanelHeight;
+            drawOverlayPanel(graphics, telemetryX, telemetryY, telemetryPanelWidth, telemetryPanelHeight);
+            drawTelemetry(graphics, telemetryX + 10, telemetryY + 12, status);
+
+            final int slipPanelWidth = 200;
+            final int slipPanelHeight = 52;
+            final int slipX = width - padding - slipPanelWidth;
+            final int slipY = height - padding - slipPanelHeight;
+            drawOverlayPanel(graphics, slipX, slipY, slipPanelWidth, slipPanelHeight);
+            drawSlipIndicator(graphics, slipX + 12, slipY + slipPanelHeight - 16, status.slipAngle());
+
+            final Entity drone = resolveDrone();
+            if (drone instanceof ShahedDroneEntity shahedDrone) {
+                final int previewBoxSize = 132;
+                final int previewBoxX = width - padding - previewBoxSize;
+                final int previewBoxY = powerPanelY + 70;
+                drawOverlayPanel(graphics, previewBoxX, previewBoxY, previewBoxSize, previewBoxSize);
+                graphics.drawString(font, Component.literal("Drone Preview"), previewBoxX + 8, previewBoxY + 8, 0xFF9BE6C8, false);
+                final int previewCenterY = previewBoxY + (previewBoxSize / 2) + font.lineHeight / 2;
+                drawDronePreview(graphics, previewBoxX + previewBoxSize / 2, previewCenterY, 20, shahedDrone, partialTick);
+            }
+        } else {
+            drawBottomTracker(graphics, relativeYaw);
         }
 
         drawReticle(graphics);
@@ -303,6 +319,19 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         graphics.drawString(font, Component.literal("N"), centerX - 4, centerY - radius - 10, 0xFFE6F2FF, false);
     }
 
+    private void drawBottomTracker(final GuiGraphics graphics, final float relativeYaw) {
+        final int size = 110;
+        final int centerX = width / 2;
+        final int centerY = height - 70;
+        final int half = size / 2;
+        graphics.fill(centerX - half, centerY - half, centerX + half, centerY + half, 0x40101010);
+        graphics.renderOutline(centerX - half, centerY - half, size, size, 0xFF2E2E35);
+        final double angleRad = Math.toRadians(relativeYaw);
+        final int dotX = centerX + (int) (Math.sin(angleRad) * (half - 8));
+        final int dotY = centerY - (int) (Math.cos(angleRad) * (half - 8));
+        graphics.fill(dotX - 3, dotY - 3, dotX + 3, dotY + 3, 0xFF00FFD5);
+    }
+
     private void drawOverlayPanel(final GuiGraphics graphics, final int x, final int y, final int boxWidth, final int boxHeight) {
         graphics.fill(x, y, x + boxWidth, y + boxHeight, 0x50000000);
         graphics.renderOutline(x, y, boxWidth, boxHeight, 0x80181818);
@@ -323,7 +352,8 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         if (this.minecraft == null || menu.getDroneId() == null) {
             return;
         }
-        final float vertical = boolValue(ascendPressed) - boolValue(descendPressed);
+        final float forward = boolValue(forwardPressed) - boolValue(backPressed);
+        float vertical = boolValue(ascendPressed) - boolValue(descendPressed);
         final float strafe = boolValue(strafeRightPressed) - boolValue(strafeLeftPressed);
         float thrustDelta = 0.0F;
         if (increasePowerPressed) {
@@ -333,7 +363,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             thrustDelta -= 0.02F;
         }
 
-        ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, strafe, vertical, thrustDelta);
+        ShahedClientHandler.sendControlPacket(menu.getDroneId(), forward, strafe, vertical, thrustDelta);
     }
 
     private static float boolValue(final boolean down) {
@@ -345,7 +375,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             hasCameraFeed = false;
             return;
         }
-        final ShahedDroneEntity drone = resolveDrone();
+        final Entity drone = resolveDrone();
         if (drone != null) {
             if (!cameraOverridden) {
                 previousCamera = minecraft.getCameraEntity();
@@ -372,20 +402,20 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
     }
 
-    private ShahedDroneEntity resolveDrone() {
+    private Entity resolveDrone() {
         if (minecraft == null || minecraft.level == null) {
             return null;
         }
         if (menu.getDroneEntityId() > 0) {
             final Entity entity = minecraft.level.getEntity(menu.getDroneEntityId());
-            if (entity instanceof ShahedDroneEntity drone) {
-                return drone;
+            if (entity != null) {
+                return entity;
             }
         }
         if (menu.getDroneId() != null) {
             for (final Entity entity : minecraft.level.entitiesForRendering()) {
-                if (entity instanceof ShahedDroneEntity drone && drone.getUUID().equals(menu.getDroneId())) {
-                    return drone;
+                if (entity.getUUID().equals(menu.getDroneId())) {
+                    return entity;
                 }
             }
         }
@@ -403,6 +433,8 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         strafeRightPressed = false;
         increasePowerPressed = false;
         decreasePowerPressed = false;
+        forwardPressed = false;
+        backPressed = false;
     }
 
     @Override
@@ -429,11 +461,28 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             return false;
         }
         final var options = minecraft.options;
+        final boolean fpvMode = menu.getTarget() == ShahedMonitorMenu.Target.FPV;
         if (matches(options.keyUp, keyCode, scanCode)) {
-            ascendPressed = pressed;
+            if (fpvMode) {
+                forwardPressed = pressed;
+            } else {
+                ascendPressed = pressed;
+            }
             return true;
         }
         if (matches(options.keyDown, keyCode, scanCode)) {
+            if (fpvMode) {
+                backPressed = pressed;
+            } else {
+                descendPressed = pressed;
+            }
+            return true;
+        }
+        if (matches(options.keyJump, keyCode, scanCode)) {
+            ascendPressed = pressed;
+            return true;
+        }
+        if (matches(options.keyShift, keyCode, scanCode)) {
             descendPressed = pressed;
             return true;
         }

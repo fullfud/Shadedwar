@@ -12,5 +12,14 @@
   },
   "shahed.engine_end": {
     "sounds": ["fullfud:shahed136_engine_end"]
+  },
+  "fpv.voice_linked": {
+    "sounds": ["fullfud:fpv_voice_linked"]
+  },
+  "fpv.voice_armed": {
+    "sounds": ["fullfud:fpv_voice_armed"]
+  },
+  "fpv.voice_disarmed": {
+    "sounds": ["fullfud:fpv_voice_disarmed"]
   }
 }

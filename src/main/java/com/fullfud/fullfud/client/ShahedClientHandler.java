@@ -1,11 +1,16 @@
 package com.fullfud.fullfud.client;
 
+import com.fullfud.fullfud.client.hud.FpvHudOverlay;
+import com.fullfud.fullfud.client.render.FpvDroneRenderer;
 import com.fullfud.fullfud.client.render.ShahedDroneRenderer;
 import com.fullfud.fullfud.client.screen.ShahedMonitorScreen;
 import com.fullfud.fullfud.client.sound.ShahedEngineLoopSound;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
+import com.fullfud.fullfud.common.item.FpvControllerItem;
+import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
+import com.fullfud.fullfud.core.network.packet.FpvTogglePacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
@@ -13,6 +18,7 @@ import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.MenuScreens;
+import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
@@ -44,10 +50,18 @@ public final class ShahedClientHandler {
         GLFW.GLFW_KEY_F,
         "key.categories.fullfud"
     );
+    private static final KeyMapping FPV_TOGGLE = new KeyMapping(
+        "key.fullfud.fpv_toggle",
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_V,
+        "key.categories.fullfud"
+    );
 
     private static ShahedStatusPacket lastStatus;
     private static long lastStatusTimestamp;
     private static final Map<UUID, EngineAudioController> ENGINE_AUDIO = new HashMap<>();
+    private static boolean fpvViewActive;
+    private static UUID activeFpvDrone;
 
     private ShahedClientHandler() {
     }
@@ -61,16 +75,19 @@ public final class ShahedClientHandler {
         event.enqueueWork(() -> {
             MenuScreens.register(FullfudRegistries.SHAHED_MONITOR_MENU.get(), ShahedMonitorScreen::new);
             MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onClientTick);
+            MinecraftForge.EVENT_BUS.addListener(FpvHudOverlay::onRenderOverlay);
         });
     }
 
     public static void onRegisterRenderers(final EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(FullfudRegistries.SHAHED_ENTITY.get(), ShahedDroneRenderer::new);
+        event.registerEntityRenderer(FullfudRegistries.FPV_DRONE_ENTITY.get(), FpvDroneRenderer::new);
     }
 
     public static void onRegisterKeyMappings(final RegisterKeyMappingsEvent event) {
         event.register(POWER_UP);
         event.register(POWER_DOWN);
+        event.register(FPV_TOGGLE);
     }
 
     public static void handleStatusPacket(final ShahedStatusPacket packet) {
@@ -92,6 +109,24 @@ public final class ShahedClientHandler {
 
     public static KeyMapping getPowerDownKey() {
         return POWER_DOWN;
+    }
+
+    public static boolean isFpvViewActive() {
+        return fpvViewActive;
+    }
+
+    public static UUID getActiveFpvDrone() {
+        return activeFpvDrone;
+    }
+
+    public static void onFpvScreenOpened(final UUID droneId) {
+        fpvViewActive = true;
+        activeFpvDrone = droneId;
+    }
+
+    public static void onFpvScreenClosed() {
+        fpvViewActive = false;
+        activeFpvDrone = null;
     }
 
     public static boolean hasFreshStatus(final int timeoutMs) {
@@ -121,6 +156,9 @@ public final class ShahedClientHandler {
             ENGINE_AUDIO.clear();
             return;
         }
+        if (FPV_TOGGLE.consumeClick()) {
+            handleFpvToggle(minecraft);
+        }
         ENGINE_AUDIO.values().forEach(controller -> controller.seen = false);
         for (final var entity : minecraft.level.entitiesForRendering()) {
             if (entity instanceof ShahedDroneEntity drone) {
@@ -129,6 +167,28 @@ public final class ShahedClientHandler {
             }
         }
         ENGINE_AUDIO.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
+    }
+
+    private static void handleFpvToggle(final Minecraft minecraft) {
+        final var player = minecraft.player;
+        if (player == null) {
+            return;
+        }
+        if (fpvViewActive) {
+            player.closeContainer();
+            onFpvScreenClosed();
+            return;
+        }
+        final var linked = FpvGogglesItem.getLinkedDrone(player);
+        if (linked.isEmpty()) {
+            player.displayClientMessage(Component.translatable("message.fullfud.fpv.goggles.no_link"), true);
+            return;
+        }
+        if (!FpvControllerItem.isController(player.getMainHandItem()) && !FpvControllerItem.isController(player.getOffhandItem())) {
+            player.displayClientMessage(Component.translatable("message.fullfud.fpv.controller.required"), true);
+            return;
+        }
+        FullfudNetwork.getChannel().sendToServer(new FpvTogglePacket(linked.get()));
     }
 
     private static final class EngineAudioController {
