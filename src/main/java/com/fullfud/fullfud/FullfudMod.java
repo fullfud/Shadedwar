@@ -2,7 +2,6 @@ package com.fullfud.fullfud;
 
 import com.fullfud.fullfud.client.ShahedClientHandler;
 import com.fullfud.fullfud.core.FullfudRegistries;
-import com.fullfud.fullfud.core.ModTabs;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.mojang.logging.LogUtils;
 import net.minecraftforge.api.distmarker.Dist;
@@ -24,7 +23,6 @@ public final class FullfudMod {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         GeckoLib.initialize();
         FullfudRegistries.register(modEventBus);
-        ModTabs.register(modEventBus);
 
         modEventBus.addListener(this::onCommonSetup);
         DistExecutor.safeRunWhenOn(Dist.CLIENT, () -> () -> {

@@ -1,6 +1,7 @@
 package com.fullfud.fullfud.client.screen;
 
 import com.fullfud.fullfud.client.ShahedClientHandler;
+import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
@@ -8,28 +9,33 @@ import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
-import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 
 public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMenu> {
     private static final int CONTROL_INTERVAL = 1;
     private static final int HUD_MARGIN = 28;
-    private final RandomSource noiseRandom = RandomSource.create();
+
+    private DynamicTexture noiseTexture;
+    private ResourceLocation noiseTextureLocation;
+    private int noiseTexWidth;
+    private int noiseTexHeight;
+    private float jammerNoiseOverride;
 
     private int controlTicker;
-    private float smoothedNoise;
     private Entity previousCamera;
     private boolean cameraOverridden;
     private boolean hudOverridden;
@@ -39,11 +45,10 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     private boolean descendPressed;
     private boolean strafeLeftPressed;
     private boolean strafeRightPressed;
-    private boolean forwardPressed;
-    private boolean backPressed;
     private boolean increasePowerPressed;
     private boolean decreasePowerPressed;
     private final SmoothedStatus smoothedStatus = new SmoothedStatus();
+    private net.minecraft.client.CameraType previousCameraType;
 
     public ShahedMonitorScreen(final ShahedMonitorMenu menu, final Inventory inventory, final Component title) {
         super(menu, inventory, title);
@@ -56,22 +61,35 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         super.init();
         this.imageWidth = this.width;
         this.imageHeight = this.height;
-        ensureCamera();
-        hasCameraFeed = false;
         if (minecraft != null) {
+            previousCamera = minecraft.player;
+            previousCameraType = minecraft.options.getCameraType();
             previousHideGui = minecraft.options.hideGui;
             minecraft.options.hideGui = true;
             hudOverridden = true;
+            noiseTexWidth = this.width;
+            noiseTexHeight = this.height;
+            noiseTexture = new DynamicTexture(noiseTexWidth, noiseTexHeight, true);
+            noiseTextureLocation = minecraft.getTextureManager().register("shahed_noise", noiseTexture);
         }
-        if (menu.getTarget() == ShahedMonitorMenu.Target.FPV) {
-            ShahedClientHandler.onFpvScreenOpened(menu.getDroneId());
-        }
+        cameraOverridden = false;
+        hasCameraFeed = false;
+        jammerNoiseOverride = 0.0F;
+        ensureCamera();
     }
 
     @Override
     protected void containerTick() {
         super.containerTick();
+        final ShahedStatusPacket status = ShahedClientHandler.getLastStatus();
+        final boolean fresh = ShahedClientHandler.hasFreshStatus(2000);
+        if (status == null || !fresh || status.signalLost()) {
+            restoreCamera();
+            if (this.minecraft != null) this.minecraft.setScreen(null);
+            return;
+        }
         ensureCamera();
+        updateJammerOverlay();
         if (++controlTicker >= CONTROL_INTERVAL) {
             controlTicker = 0;
             sendControlInput();
@@ -82,19 +100,23 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     public void removed() {
         super.removed();
         resetKeyStates();
+        requestCameraRelease();
         restoreCamera();
-        if (menu.getTarget() == ShahedMonitorMenu.Target.FPV) {
-            ShahedClientHandler.onFpvScreenClosed();
+        if (noiseTexture != null) {
+            noiseTexture.close();
+            noiseTexture = null;
         }
     }
 
     @Override
     public void onClose() {
         super.onClose();
+        requestCameraRelease();
         restoreCamera();
         resetKeyStates();
-        if (menu.getTarget() == ShahedMonitorMenu.Target.FPV) {
-            ShahedClientHandler.onFpvScreenClosed();
+        if (noiseTexture != null) {
+            noiseTexture.close();
+            noiseTexture = null;
         }
     }
 
@@ -105,7 +127,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
     @Override
     public void renderBackground(final GuiGraphics graphics) {
-        
     }
 
     @Override
@@ -116,7 +137,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
     @Override
     protected void renderLabels(final GuiGraphics graphics, final int mouseX, final int mouseY) {
-        
     }
 
     private void drawFullPanel(final GuiGraphics graphics) {
@@ -130,40 +150,107 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
         final ShahedStatusPacket status = ShahedClientHandler.getLastStatus();
         final boolean liveSignal = hasLiveFeed(status);
-        final float noiseLevel = liveSignal ? status.noiseLevel() : 1.0F;
-        renderNoise(graphics, monitorX, monitorY, monitorWidth, monitorHeight, noiseLevel);
+
+        double distance = 0.0D;
+        if (minecraft != null && minecraft.player != null && status != null) {
+            final double dx = status.x() - minecraft.player.getX();
+            final double dy = status.y() - minecraft.player.getY();
+            final double dz = status.z() - minecraft.player.getZ();
+            distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        float noiseOpacity = computeNoiseOpacityByDistance(distance);
+        noiseOpacity = Math.max(noiseOpacity, jammerNoiseOverride);
+
+        if (noiseOpacity > 0.0F) {
+            renderTvNoise(graphics, monitorX, monitorY, monitorWidth, monitorHeight, noiseOpacity);
+        }
 
         if (!liveSignal) {
-            graphics.drawString(font, Component.translatable("screen.fullfud.monitor.no_signal"), HUD_MARGIN, HUD_MARGIN, 0xFFFF5555, false);
+            graphics.drawString(
+                font,
+                Component.translatable("screen.fullfud.monitor.no_signal"),
+                HUD_MARGIN,
+                HUD_MARGIN,
+                0xFFFF5555,
+                false
+            );
         }
     }
 
-    private void renderNoise(final GuiGraphics graphics, final int x, final int y, final int width, final int height, final float noiseLevel) {
-        if (noiseLevel <= 0.05F) {
+    private void renderTvNoise(final GuiGraphics graphics, final int x, final int y, final int width, final int height, final float opacity) {
+        if (opacity <= 0.0F || minecraft == null) return;
+
+        if (noiseTexture == null || noiseTexWidth != width || noiseTexHeight != height) {
+            noiseTexWidth = width;
+            noiseTexHeight = height;
+            noiseTexture = new DynamicTexture(noiseTexWidth, noiseTexHeight, true);
+            noiseTextureLocation = minecraft.getTextureManager().register("shahed_noise", noiseTexture);
+        }
+
+        final long time = this.minecraft.level != null ? this.minecraft.level.getGameTime() : System.currentTimeMillis() / 50L;
+        updateNoiseTexture(opacity, time);
+        graphics.blit(noiseTextureLocation, x, y, 0, 0, width, height, noiseTexWidth, noiseTexHeight);
+    }
+
+    private void updateNoiseTexture(final float opacity, final long time) {
+        if (noiseTexture == null) return;
+        final float clamped = Mth.clamp(opacity, 0.0F, 1.0F);
+        final int alpha = (int) (clamped * 255.0F);
+        final var image = noiseTexture.getPixels();
+        if (image == null) return;
+
+        long seed = time * 341873128712L ^ 132897987541L;
+        for (int y = 0; y < noiseTexHeight; y++) {
+            for (int x = 0; x < noiseTexWidth; x++) {
+                seed ^= (seed << 13);
+                seed ^= (seed >> 7);
+                seed ^= (seed << 17);
+                int grey = (int) (seed & 0xFFL);
+                int color = (alpha << 24) | (grey << 16) | (grey << 8) | grey;
+                image.setPixelRGBA(x, y, color);
+            }
+        }
+        noiseTexture.upload();
+    }
+
+    private float computeNoiseOpacityByDistance(final double distance) {
+        if (distance <= 0.0D) return 0.0F;
+        return Mth.clamp((float) (distance / 10000.0D), 0.0F, 1.0F);
+    }
+
+    private void updateJammerOverlay() {
+        jammerNoiseOverride = 0.0F;
+        if (minecraft == null || minecraft.level == null) {
+            return;
+        }
+        final ShahedStatusPacket status = ShahedClientHandler.getLastStatus();
+        if (status == null) {
             return;
         }
 
-        final long time = this.minecraft != null && this.minecraft.level != null ? this.minecraft.level.getGameTime() : System.currentTimeMillis() / 50L;
-        smoothedNoise = Mth.lerp(0.15F, smoothedNoise, noiseLevel);
+        final Vec3 dronePos = new Vec3(status.x(), status.y(), status.z());
+        final double radius = 350.0D;
+        final AABB searchBox = new AABB(dronePos, dronePos).inflate(radius, radius, radius);
+        float strongest = 0.0F;
 
-        for (int row = 0; row < height; row++) {
-            final float wave = (float) Math.sin((row / 6.0F) + (time * 0.08F));
-            final int alpha = (int) (20 + (wave + 1.0F) * 30 * smoothedNoise);
-            final int grey = 90 + (int) (smoothedNoise * 80);
-            final int color = (alpha << 24) | (grey << 16) | (grey << 8) | grey;
-            graphics.fill(x, y + row, x + width, y + row + 1, color);
+        for (final RebEmitterEntity emitter : minecraft.level.getEntitiesOfClass(RebEmitterEntity.class, searchBox)) {
+            if (!emitter.hasBattery() || emitter.getChargeTicks() <= 0) {
+                continue;
+            }
+            final double dx = emitter.getX() - dronePos.x;
+            final double dz = emitter.getZ() - dronePos.z;
+            final double horizontalDist = Math.sqrt(dx * dx + dz * dz);
+            if (horizontalDist > radius) {
+                continue;
+            }
+            final double strength = 1.0D - (horizontalDist / radius);
+            final float overlay = (float) (0.5D + strength * 0.5D);
+            if (overlay > strongest) {
+                strongest = overlay;
+            }
         }
-
-        final int speckles = Mth.clamp((int) (smoothedNoise * 500), 10, 600);
-        noiseRandom.setSeed(time * 31);
-        for (int i = 0; i < speckles; i++) {
-            final int px = x + noiseRandom.nextInt(Math.max(1, width));
-            final int py = y + noiseRandom.nextInt(Math.max(1, height));
-            final int alpha = 60 + noiseRandom.nextInt(120);
-            final int shade = 150 + noiseRandom.nextInt(80);
-            final int color = (alpha << 24) | (shade << 16) | (shade << 8) | shade;
-            graphics.fill(px, py, px + 1, py + 1, color);
-        }
+        jammerNoiseOverride = strongest;
     }
 
     private void drawStatusOverlay(final GuiGraphics graphics, final float partialTick) {
@@ -173,8 +260,15 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             return;
         }
         final SmoothedStatusSnapshot smoothed = smoothedStatus.sample(status);
-        final boolean fpvMode = menu.getTarget() == ShahedMonitorMenu.Target.FPV;
+
         final int padding = 24;
+
+        final int infoWidth = 240;
+        final int infoHeight = 52;
+        drawOverlayPanel(graphics, padding - 10, padding - 10, infoWidth + 20, infoHeight + 20);
+        graphics.drawString(font, Component.literal(String.format("X %.1f  Z %.1f", smoothed.x(), smoothed.z())), padding, padding, 0xFFFFFFFF, false);
+        graphics.drawString(font, Component.literal(String.format("Y %.1f", smoothed.y())), padding, padding + 14, 0xFFE6E6E6, false);
+        graphics.drawString(font, Component.literal(String.format("Heading %.0f°", smoothed.yaw())), padding, padding + 28, 0xFFE6E6E6, false);
 
         final int powerPanelWidth = 240;
         final int powerPanelX = width - padding - powerPanelWidth;
@@ -183,43 +277,31 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         drawPowerBar(graphics, powerPanelX + 16, powerPanelY + 32, status.thrust());
 
         final float relativeYaw = computeRelativeYaw(smoothed.x(), smoothed.z());
+        drawCompass(graphics, width / 2, padding + 36, relativeYaw);
 
-        if (!fpvMode) {
-            final int infoWidth = 240;
-            final int infoHeight = 52;
-            drawOverlayPanel(graphics, padding - 10, padding - 10, infoWidth + 20, infoHeight + 20);
-            graphics.drawString(font, Component.literal(String.format("X %.1f  Z %.1f", smoothed.x(), smoothed.z())), padding, padding, 0xFFFFFFFF, false);
-            graphics.drawString(font, Component.literal(String.format("Y %.1f", smoothed.y())), padding, padding + 14, 0xFFE6E6E6, false);
-            graphics.drawString(font, Component.literal(String.format("Heading %.0f°", smoothed.yaw())), padding, padding + 28, 0xFFE6E6E6, false);
+        final int telemetryPanelWidth = 260;
+        final int telemetryPanelHeight = 96;
+        final int telemetryX = padding - 10;
+        final int telemetryY = height - padding - telemetryPanelHeight;
+        drawOverlayPanel(graphics, telemetryX, telemetryY, telemetryPanelWidth, telemetryPanelHeight);
+        drawTelemetry(graphics, telemetryX + 10, telemetryY + 12, status);
 
-            drawCompass(graphics, width / 2, padding + 36, relativeYaw);
+        final int slipPanelWidth = 200;
+        final int slipPanelHeight = 52;
+        final int slipX = width - padding - slipPanelWidth;
+        final int slipY = height - padding - slipPanelHeight;
+        drawOverlayPanel(graphics, slipX, slipY, slipPanelWidth, slipPanelHeight);
+        drawSlipIndicator(graphics, slipX + 12, slipY + slipPanelHeight - 16, status.slipAngle());
 
-            final int telemetryPanelWidth = 260;
-            final int telemetryPanelHeight = 96;
-            final int telemetryX = padding - 10;
-            final int telemetryY = height - padding - telemetryPanelHeight;
-            drawOverlayPanel(graphics, telemetryX, telemetryY, telemetryPanelWidth, telemetryPanelHeight);
-            drawTelemetry(graphics, telemetryX + 10, telemetryY + 12, status);
-
-            final int slipPanelWidth = 200;
-            final int slipPanelHeight = 52;
-            final int slipX = width - padding - slipPanelWidth;
-            final int slipY = height - padding - slipPanelHeight;
-            drawOverlayPanel(graphics, slipX, slipY, slipPanelWidth, slipPanelHeight);
-            drawSlipIndicator(graphics, slipX + 12, slipY + slipPanelHeight - 16, status.slipAngle());
-
-            final Entity drone = resolveDrone();
-            if (drone instanceof ShahedDroneEntity shahedDrone) {
-                final int previewBoxSize = 132;
-                final int previewBoxX = width - padding - previewBoxSize;
-                final int previewBoxY = powerPanelY + 70;
-                drawOverlayPanel(graphics, previewBoxX, previewBoxY, previewBoxSize, previewBoxSize);
-                graphics.drawString(font, Component.literal("Drone Preview"), previewBoxX + 8, previewBoxY + 8, 0xFF9BE6C8, false);
-                final int previewCenterY = previewBoxY + (previewBoxSize / 2) + font.lineHeight / 2;
-                drawDronePreview(graphics, previewBoxX + previewBoxSize / 2, previewCenterY, 20, shahedDrone, partialTick);
-            }
-        } else {
-            drawBottomTracker(graphics, relativeYaw);
+        final ShahedDroneEntity drone = resolveDrone();
+        if (drone != null) {
+            final int previewBoxSize = 132;
+            final int previewBoxX = width - padding - previewBoxSize;
+            final int previewBoxY = powerPanelY + 70;
+            drawOverlayPanel(graphics, previewBoxX, previewBoxY, previewBoxSize, previewBoxSize);
+            graphics.drawString(font, Component.literal("Drone Preview"), previewBoxX + 8, previewBoxY + 8, 0xFF9BE6C8, false);
+            final int previewCenterY = previewBoxY + (previewBoxSize / 2) + font.lineHeight / 2;
+            drawDronePreview(graphics, previewBoxX + previewBoxSize / 2, previewCenterY, 20, drone, partialTick);
         }
 
         drawReticle(graphics);
@@ -278,6 +360,11 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         graphics.fill(centerX - thickness, centerY - length, centerX + thickness, centerY + length, color);
     }
 
+    private void requestCameraRelease() {
+        if (this.minecraft == null || menu.getDroneId() == null) return;
+        ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, 0.0F, 0.0F, Float.NEGATIVE_INFINITY);
+    }
+
     private void drawDronePreview(final GuiGraphics graphics, final int centerX, final int centerY, final int scale, final ShahedDroneEntity drone, final float partialTick) {
         final Minecraft mc = this.minecraft;
         if (mc == null || drone == null) {
@@ -319,19 +406,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         graphics.drawString(font, Component.literal("N"), centerX - 4, centerY - radius - 10, 0xFFE6F2FF, false);
     }
 
-    private void drawBottomTracker(final GuiGraphics graphics, final float relativeYaw) {
-        final int size = 110;
-        final int centerX = width / 2;
-        final int centerY = height - 70;
-        final int half = size / 2;
-        graphics.fill(centerX - half, centerY - half, centerX + half, centerY + half, 0x40101010);
-        graphics.renderOutline(centerX - half, centerY - half, size, size, 0xFF2E2E35);
-        final double angleRad = Math.toRadians(relativeYaw);
-        final int dotX = centerX + (int) (Math.sin(angleRad) * (half - 8));
-        final int dotY = centerY - (int) (Math.cos(angleRad) * (half - 8));
-        graphics.fill(dotX - 3, dotY - 3, dotX + 3, dotY + 3, 0xFF00FFD5);
-    }
-
     private void drawOverlayPanel(final GuiGraphics graphics, final int x, final int y, final int boxWidth, final int boxHeight) {
         graphics.fill(x, y, x + boxWidth, y + boxHeight, 0x50000000);
         graphics.renderOutline(x, y, boxWidth, boxHeight, 0x80181818);
@@ -349,11 +423,28 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     }
 
     private void sendControlInput() {
-        if (this.minecraft == null || menu.getDroneId() == null) {
+        final ShahedStatusPacket st = ShahedClientHandler.getLastStatus();
+        if (!hasLiveFeed(st) || (st != null && st.signalLost())) {
             return;
         }
-        final float forward = boolValue(forwardPressed) - boolValue(backPressed);
-        float vertical = boolValue(ascendPressed) - boolValue(descendPressed);
+        if (this.minecraft == null || menu.getDroneId() == null || this.minecraft.player == null) {
+            return;
+        }
+
+        final double dx = st.x() - this.minecraft.player.getX();
+        final double dy = st.y() - this.minecraft.player.getY();
+        final double dz = st.z() - this.minecraft.player.getZ();
+        final double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (distance >= 10000.0D) {
+            final float vertical = -1.0F;
+            final float strafe = 0.0F;
+            final float thrustDelta = 0.0F;
+            ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, strafe, vertical, thrustDelta);
+            return;
+        }
+
+        final float vertical = boolValue(ascendPressed) - boolValue(descendPressed);
         final float strafe = boolValue(strafeRightPressed) - boolValue(strafeLeftPressed);
         float thrustDelta = 0.0F;
         if (increasePowerPressed) {
@@ -363,7 +454,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             thrustDelta -= 0.02F;
         }
 
-        ShahedClientHandler.sendControlPacket(menu.getDroneId(), forward, strafe, vertical, thrustDelta);
+        ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, strafe, vertical, thrustDelta);
     }
 
     private static float boolValue(final boolean down) {
@@ -375,10 +466,11 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             hasCameraFeed = false;
             return;
         }
-        final Entity drone = resolveDrone();
+        final ShahedDroneEntity drone = resolveDrone();
         if (drone != null) {
             if (!cameraOverridden) {
-                previousCamera = minecraft.getCameraEntity();
+                if (previousCamera == null) previousCamera = minecraft.player;
+                if (previousCameraType == null) previousCameraType = minecraft.options.getCameraType();
             }
             minecraft.setCameraEntity(drone);
             minecraft.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
@@ -391,31 +483,38 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     }
 
     private void restoreCamera() {
-        if (cameraOverridden && previousCamera != null && minecraft != null) {
-            minecraft.setCameraEntity(previousCamera);
+        if (minecraft != null) {
+            final Entity fallback = minecraft.player != null ? minecraft.player : previousCamera;
+            if (cameraOverridden && fallback != null) {
+                minecraft.setCameraEntity(fallback);
+            }
+            if (previousCameraType != null) {
+                minecraft.options.setCameraType(previousCameraType);
+            }
+            if (hudOverridden) {
+                minecraft.options.hideGui = previousHideGui;
+                hudOverridden = false;
+            }
         }
         cameraOverridden = false;
         previousCamera = null;
-        if (hudOverridden && minecraft != null) {
-            minecraft.options.hideGui = previousHideGui;
-            hudOverridden = false;
-        }
+        previousCameraType = null;
     }
 
-    private Entity resolveDrone() {
+    private ShahedDroneEntity resolveDrone() {
         if (minecraft == null || minecraft.level == null) {
             return null;
         }
         if (menu.getDroneEntityId() > 0) {
             final Entity entity = minecraft.level.getEntity(menu.getDroneEntityId());
-            if (entity != null) {
-                return entity;
+            if (entity instanceof ShahedDroneEntity drone) {
+                return drone;
             }
         }
         if (menu.getDroneId() != null) {
             for (final Entity entity : minecraft.level.entitiesForRendering()) {
-                if (entity.getUUID().equals(menu.getDroneId())) {
-                    return entity;
+                if (entity instanceof ShahedDroneEntity drone && drone.getUUID().equals(menu.getDroneId())) {
+                    return drone;
                 }
             }
         }
@@ -433,8 +532,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         strafeRightPressed = false;
         increasePowerPressed = false;
         decreasePowerPressed = false;
-        forwardPressed = false;
-        backPressed = false;
     }
 
     @Override
@@ -461,28 +558,11 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             return false;
         }
         final var options = minecraft.options;
-        final boolean fpvMode = menu.getTarget() == ShahedMonitorMenu.Target.FPV;
         if (matches(options.keyUp, keyCode, scanCode)) {
-            if (fpvMode) {
-                forwardPressed = pressed;
-            } else {
-                ascendPressed = pressed;
-            }
-            return true;
-        }
-        if (matches(options.keyDown, keyCode, scanCode)) {
-            if (fpvMode) {
-                backPressed = pressed;
-            } else {
-                descendPressed = pressed;
-            }
-            return true;
-        }
-        if (matches(options.keyJump, keyCode, scanCode)) {
             ascendPressed = pressed;
             return true;
         }
-        if (matches(options.keyShift, keyCode, scanCode)) {
+        if (matches(options.keyDown, keyCode, scanCode)) {
             descendPressed = pressed;
             return true;
         }

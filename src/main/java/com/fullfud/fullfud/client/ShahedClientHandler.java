@@ -1,31 +1,40 @@
 package com.fullfud.fullfud.client;
 
-import com.fullfud.fullfud.client.hud.FpvHudOverlay;
-import com.fullfud.fullfud.client.render.FpvDroneRenderer;
+import com.fullfud.fullfud.client.render.RebEmitterRenderer;
 import com.fullfud.fullfud.client.render.ShahedDroneRenderer;
 import com.fullfud.fullfud.client.screen.ShahedMonitorScreen;
+import com.fullfud.fullfud.client.sound.RebStaticNoiseSound;
 import com.fullfud.fullfud.client.sound.ShahedEngineLoopSound;
+import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
-import com.fullfud.fullfud.common.item.FpvControllerItem;
-import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
-import com.fullfud.fullfud.core.network.packet.FpvTogglePacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.BufferBuilder.RenderedBuffer;
+import com.mojang.blaze3d.vertex.BufferUploader;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.Tesselator;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.MenuScreens;
-import net.minecraft.network.chat.Component;
+import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.EntityHitResult;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.client.event.RenderLevelStageEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -50,18 +59,11 @@ public final class ShahedClientHandler {
         GLFW.GLFW_KEY_F,
         "key.categories.fullfud"
     );
-    private static final KeyMapping FPV_TOGGLE = new KeyMapping(
-        "key.fullfud.fpv_toggle",
-        InputConstants.Type.KEYSYM,
-        GLFW.GLFW_KEY_V,
-        "key.categories.fullfud"
-    );
 
     private static ShahedStatusPacket lastStatus;
     private static long lastStatusTimestamp;
     private static final Map<UUID, EngineAudioController> ENGINE_AUDIO = new HashMap<>();
-    private static boolean fpvViewActive;
-    private static UUID activeFpvDrone;
+    private static final Map<Integer, RebNoiseHandle> REB_NOISE = new HashMap<>();
 
     private ShahedClientHandler() {
     }
@@ -75,19 +77,18 @@ public final class ShahedClientHandler {
         event.enqueueWork(() -> {
             MenuScreens.register(FullfudRegistries.SHAHED_MONITOR_MENU.get(), ShahedMonitorScreen::new);
             MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onClientTick);
-            MinecraftForge.EVENT_BUS.addListener(FpvHudOverlay::onRenderOverlay);
+            MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderLevelStage);
         });
     }
 
     public static void onRegisterRenderers(final EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(FullfudRegistries.SHAHED_ENTITY.get(), ShahedDroneRenderer::new);
-        event.registerEntityRenderer(FullfudRegistries.FPV_DRONE_ENTITY.get(), FpvDroneRenderer::new);
+        event.registerEntityRenderer(FullfudRegistries.REB_EMITTER_ENTITY.get(), RebEmitterRenderer::new);
     }
 
     public static void onRegisterKeyMappings(final RegisterKeyMappingsEvent event) {
         event.register(POWER_UP);
         event.register(POWER_DOWN);
-        event.register(FPV_TOGGLE);
     }
 
     public static void handleStatusPacket(final ShahedStatusPacket packet) {
@@ -109,24 +110,6 @@ public final class ShahedClientHandler {
 
     public static KeyMapping getPowerDownKey() {
         return POWER_DOWN;
-    }
-
-    public static boolean isFpvViewActive() {
-        return fpvViewActive;
-    }
-
-    public static UUID getActiveFpvDrone() {
-        return activeFpvDrone;
-    }
-
-    public static void onFpvScreenOpened(final UUID droneId) {
-        fpvViewActive = true;
-        activeFpvDrone = droneId;
-    }
-
-    public static void onFpvScreenClosed() {
-        fpvViewActive = false;
-        activeFpvDrone = null;
     }
 
     public static boolean hasFreshStatus(final int timeoutMs) {
@@ -154,41 +137,68 @@ public final class ShahedClientHandler {
         if (minecraft.level == null || minecraft.isPaused()) {
             ENGINE_AUDIO.values().forEach(EngineAudioController::stop);
             ENGINE_AUDIO.clear();
+            REB_NOISE.values().forEach(RebNoiseHandle::stop);
+            REB_NOISE.clear();
             return;
         }
-        if (FPV_TOGGLE.consumeClick()) {
-            handleFpvToggle(minecraft);
-        }
         ENGINE_AUDIO.values().forEach(controller -> controller.seen = false);
+        REB_NOISE.values().forEach(handle -> handle.seen = false);
         for (final var entity : minecraft.level.entitiesForRendering()) {
             if (entity instanceof ShahedDroneEntity drone) {
                 ENGINE_AUDIO.computeIfAbsent(drone.getUUID(), id -> new EngineAudioController(drone))
                     .updateFromEntity();
+            } else if (entity instanceof RebEmitterEntity emitter) {
+                REB_NOISE.computeIfAbsent(emitter.getId(), id -> new RebNoiseHandle(emitter))
+                    .update(emitter);
             }
         }
         ENGINE_AUDIO.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
+        REB_NOISE.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
     }
 
-    private static void handleFpvToggle(final Minecraft minecraft) {
-        final var player = minecraft.player;
-        if (player == null) {
+    private static void onRenderLevelStage(final RenderLevelStageEvent event) {
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             return;
         }
-        if (fpvViewActive) {
-            player.closeContainer();
-            onFpvScreenClosed();
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null || minecraft.level == null) {
             return;
         }
-        final var linked = FpvGogglesItem.getLinkedDrone(player);
-        if (linked.isEmpty()) {
-            player.displayClientMessage(Component.translatable("message.fullfud.fpv.goggles.no_link"), true);
+        if (!isHoldingBattery(minecraft.player)) {
             return;
         }
-        if (!FpvControllerItem.isController(player.getMainHandItem()) && !FpvControllerItem.isController(player.getOffhandItem())) {
-            player.displayClientMessage(Component.translatable("message.fullfud.fpv.controller.required"), true);
+        if (!(minecraft.hitResult instanceof EntityHitResult entityHit)) {
             return;
         }
-        FullfudNetwork.getChannel().sendToServer(new FpvTogglePacket(linked.get()));
+        if (!(entityHit.getEntity() instanceof RebEmitterEntity emitter) || emitter.isRemoved() || emitter.hasBattery()) {
+            return;
+        }
+        final PoseStack poseStack = event.getPoseStack();
+        poseStack.pushPose();
+        final var cameraPos = event.getCamera().getPosition();
+        poseStack.translate(emitter.getX() - cameraPos.x, emitter.getY() - cameraPos.y, emitter.getZ() - cameraPos.z);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.disableDepthTest();
+        RenderSystem.setShader(GameRenderer::getPositionColorShader);
+        final BufferBuilder builder = Tesselator.getInstance().getBuilder();
+        final float half = 0.25F;
+        final float y = 0.5F;
+        builder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+        builder.vertex(poseStack.last().pose(), -half, y, -half).color(32, 255, 96, 160).endVertex();
+        builder.vertex(poseStack.last().pose(), half, y, -half).color(32, 255, 96, 160).endVertex();
+        builder.vertex(poseStack.last().pose(), half, y, half).color(32, 255, 96, 160).endVertex();
+        builder.vertex(poseStack.last().pose(), -half, y, half).color(32, 255, 96, 160).endVertex();
+        final RenderedBuffer renderedBuffer = builder.end();
+        BufferUploader.drawWithShader(renderedBuffer);
+        RenderSystem.enableDepthTest();
+        RenderSystem.disableBlend();
+        poseStack.popPose();
+    }
+
+    private static boolean isHoldingBattery(final Player player) {
+        return player.getMainHandItem().is(FullfudRegistries.REB_BATTERY_ITEM.get()) ||
+            player.getOffhandItem().is(FullfudRegistries.REB_BATTERY_ITEM.get());
     }
 
     private static final class EngineAudioController {
@@ -273,6 +283,54 @@ public final class ShahedClientHandler {
             final float volume = 0.25F + 0.75F * thrust;
             final float pitch = 0.9F + 0.2F * thrust;
             minecraft.level.playLocalSound(drone.getX(), drone.getY(), drone.getZ(), event, SoundSource.NEUTRAL, volume, pitch, false);
+        }
+    }
+
+    private static final class RebNoiseHandle {
+        private RebEmitterEntity emitter;
+        private RebStaticNoiseSound sound;
+        private boolean seen;
+
+        private RebNoiseHandle(final RebEmitterEntity emitter) {
+            this.emitter = emitter;
+        }
+
+        private void update(final RebEmitterEntity emitter) {
+            this.emitter = emitter;
+            seen = true;
+            ensureSound();
+        }
+
+        private void ensureSound() {
+            if (sound != null && !sound.isStopped()) {
+                return;
+            }
+            if (emitter == null || !emitter.hasBattery() || emitter.getChargeTicks() <= 0) {
+                return;
+            }
+            sound = new RebStaticNoiseSound(emitter);
+            final Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft != null) {
+                minecraft.getSoundManager().play(sound);
+            }
+        }
+
+        private boolean shouldRemove() {
+            if (!seen || emitter == null || emitter.isRemoved()) {
+                stop();
+                return true;
+            }
+            if (sound != null && sound.shouldRemove()) {
+                sound = null;
+            }
+            return false;
+        }
+
+        private void stop() {
+            if (sound != null) {
+                sound.stopSound();
+                sound = null;
+            }
         }
     }
 }

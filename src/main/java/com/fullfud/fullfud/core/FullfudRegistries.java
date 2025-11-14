@@ -1,12 +1,11 @@
 package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.FullfudMod;
-import com.fullfud.fullfud.common.entity.FpvDroneEntity;
+import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
-import com.fullfud.fullfud.common.item.FpvControllerItem;
-import com.fullfud.fullfud.common.item.FpvDroneItem;
-import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.fullfud.fullfud.common.item.MonitorItem;
+import com.fullfud.fullfud.common.item.RebBatteryItem;
+import com.fullfud.fullfud.common.item.RebEmitterItem;
 import com.fullfud.fullfud.common.item.ShahedDroneItem;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import net.minecraft.resources.ResourceLocation;
@@ -40,16 +39,12 @@ public final class FullfudRegistries {
         new ShahedDroneItem(new Item.Properties().stacksTo(1))
     );
 
-    public static final RegistryObject<Item> FPV_DRONE_ITEM = ITEMS.register("fpv_drone", () ->
-        new FpvDroneItem(new Item.Properties().stacksTo(1))
+    public static final RegistryObject<Item> REB_EMITTER_ITEM = ITEMS.register("reb_emitter", () ->
+        new RebEmitterItem(new Item.Properties().stacksTo(1))
     );
 
-    public static final RegistryObject<Item> FPV_CONTROLLER_ITEM = ITEMS.register("fpv_controller", () ->
-        new FpvControllerItem(new Item.Properties().stacksTo(1))
-    );
-
-    public static final RegistryObject<Item> FPV_GOGGLES_ITEM = ITEMS.register("fpv_goggles", () ->
-        new FpvGogglesItem(new Item.Properties().stacksTo(1))
+    public static final RegistryObject<Item> REB_BATTERY_ITEM = ITEMS.register("reb_battery", () ->
+        new RebBatteryItem(new Item.Properties().stacksTo(1))
     );
 
     public static final RegistryObject<EntityType<ShahedDroneEntity>> SHAHED_ENTITY = ENTITY_TYPES.register("shahed_136", () ->
@@ -60,12 +55,12 @@ public final class FullfudRegistries {
             .build(resource("shahed_136").toString())
     );
 
-    public static final RegistryObject<EntityType<FpvDroneEntity>> FPV_DRONE_ENTITY = ENTITY_TYPES.register("fpv_drone", () ->
-        EntityType.Builder.<FpvDroneEntity>of(FpvDroneEntity::new, MobCategory.MISC)
-            .sized(0.45F, 0.16F)
-            .clientTrackingRange(96)
-            .updateInterval(1)
-            .build(resource("fpv_drone").toString())
+    public static final RegistryObject<EntityType<RebEmitterEntity>> REB_EMITTER_ENTITY = ENTITY_TYPES.register("reb_emitter", () ->
+        EntityType.Builder.<RebEmitterEntity>of(RebEmitterEntity::new, MobCategory.MISC)
+            .sized(1.0F, 1.0F)
+            .clientTrackingRange(64)
+            .updateInterval(10)
+            .build(resource("reb_emitter").toString())
     );
 
     public static final RegistryObject<MenuType<ShahedMonitorMenu>> SHAHED_MONITOR_MENU = MENU_TYPES.register("shahed_monitor", () ->
@@ -80,14 +75,8 @@ public final class FullfudRegistries {
     public static final RegistryObject<SoundEvent> SHAHED_ENGINE_END = SOUND_EVENTS.register("shahed.engine_end",
         () -> SoundEvent.createVariableRangeEvent(resource("shahed.engine_end"))
     );
-    public static final RegistryObject<SoundEvent> FPV_VOICE_LINKED = SOUND_EVENTS.register("fpv.voice_linked",
-        () -> SoundEvent.createVariableRangeEvent(resource("fpv_voice_linked"))
-    );
-    public static final RegistryObject<SoundEvent> FPV_VOICE_ARMED = SOUND_EVENTS.register("fpv.voice_armed",
-        () -> SoundEvent.createVariableRangeEvent(resource("fpv_voice_armed"))
-    );
-    public static final RegistryObject<SoundEvent> FPV_VOICE_DISARMED = SOUND_EVENTS.register("fpv.voice_disarmed",
-        () -> SoundEvent.createVariableRangeEvent(resource("fpv_voice_disarmed"))
+    public static final RegistryObject<SoundEvent> REB_STATIC_NOISE = SOUND_EVENTS.register("reb.static",
+        () -> SoundEvent.createVariableRangeEvent(resource("reb.static"))
     );
 
     public static void register(final IEventBus modEventBus) {
