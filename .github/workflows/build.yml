@@ -1,0 +1,31 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+      - name: Grant permissions to Gradle
+        run: chmod +x ./gradlew
+      - name: Assemble mod jars
+        run: ./gradlew assemble reobfJar
+      - name: Upload mod jars
+        uses: actions/upload-artifact@v4
+        with:
+          name: mod-jars
+          path: |
+            build/libs/*.jar
+            build/reobfJar/**/*.jar
+          if-no-files-found: error
