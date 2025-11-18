@@ -13,7 +13,7 @@ public class ShahedDroneRenderer extends GeoEntityRenderer<ShahedDroneEntity> {
 
     public ShahedDroneRenderer(final EntityRendererProvider.Context context) {
         super(context, new ShahedDroneModel());
-        this.shadowRadius = 0.45F;
+        this.shadowRadius = 0.0F;
     }
 
     @Override

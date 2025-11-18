@@ -1,6 +1,7 @@
 package com.fullfud.fullfud;
 
 import com.fullfud.fullfud.client.ShahedClientHandler;
+import com.fullfud.fullfud.core.FullfudCreativeTabs;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.mojang.logging.LogUtils;
@@ -23,6 +24,7 @@ public final class FullfudMod {
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         GeckoLib.initialize();
         FullfudRegistries.register(modEventBus);
+        FullfudCreativeTabs.register(modEventBus);
 
         modEventBus.addListener(this::onCommonSetup);
         DistExecutor.safeRunWhenOn(Dist.CLIENT, () -> () -> {

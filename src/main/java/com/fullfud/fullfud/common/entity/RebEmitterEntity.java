@@ -152,6 +152,12 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
     public boolean isPushable() { return false; }
 
     @Override
+    public boolean isPickable() { return true; }
+
+    @Override
+    public boolean isAttackable() { return true; }
+
+    @Override
     public InteractionResult interact(final Player player, final InteractionHand hand) {
         final ItemStack heldItem = player.getItemInHand(hand);
         if (!hasBattery() && heldItem.getItem() == FullfudRegistries.REB_BATTERY_ITEM.get()) {

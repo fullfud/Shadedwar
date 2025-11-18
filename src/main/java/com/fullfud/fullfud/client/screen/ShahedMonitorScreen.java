@@ -34,6 +34,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     private int noiseTexWidth;
     private int noiseTexHeight;
     private float jammerNoiseOverride;
+    private boolean jammerDisablesControls;
 
     private int controlTicker;
     private Entity previousCamera;
@@ -75,6 +76,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         cameraOverridden = false;
         hasCameraFeed = false;
         jammerNoiseOverride = 0.0F;
+        jammerDisablesControls = false;
         ensureCamera();
     }
 
@@ -159,11 +161,13 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         }
 
-        float noiseOpacity = computeNoiseOpacityByDistance(distance);
+        float noiseOpacity = status != null ? status.noiseLevel() : 0.0F;
+        noiseOpacity = Math.max(noiseOpacity, computeNoiseOpacityByDistance(distance));
         noiseOpacity = Math.max(noiseOpacity, jammerNoiseOverride);
+        final float displayNoise = toDisplayNoise(noiseOpacity);
 
-        if (noiseOpacity > 0.0F) {
-            renderTvNoise(graphics, monitorX, monitorY, monitorWidth, monitorHeight, noiseOpacity);
+        if (displayNoise > 0.0F) {
+            renderTvNoise(graphics, monitorX, monitorY, monitorWidth, monitorHeight, displayNoise);
         }
 
         if (!liveSignal) {
@@ -189,14 +193,17 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
 
         final long time = this.minecraft.level != null ? this.minecraft.level.getGameTime() : System.currentTimeMillis() / 50L;
-        updateNoiseTexture(opacity, time);
+        updateNoiseTexture(time);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, Mth.clamp(opacity, 0.0F, 1.0F));
         graphics.blit(noiseTextureLocation, x, y, 0, 0, width, height, noiseTexWidth, noiseTexHeight);
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+        RenderSystem.disableBlend();
     }
 
-    private void updateNoiseTexture(final float opacity, final long time) {
+    private void updateNoiseTexture(final long time) {
         if (noiseTexture == null) return;
-        final float clamped = Mth.clamp(opacity, 0.0F, 1.0F);
-        final int alpha = (int) (clamped * 255.0F);
         final var image = noiseTexture.getPixels();
         if (image == null) return;
 
@@ -207,7 +214,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
                 seed ^= (seed >> 7);
                 seed ^= (seed << 17);
                 int grey = (int) (seed & 0xFFL);
-                int color = (alpha << 24) | (grey << 16) | (grey << 8) | grey;
+                int color = 0xFF000000 | (grey << 16) | (grey << 8) | grey;
                 image.setPixelRGBA(x, y, color);
             }
         }
@@ -216,11 +223,27 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
     private float computeNoiseOpacityByDistance(final double distance) {
         if (distance <= 0.0D) return 0.0F;
-        return Mth.clamp((float) (distance / 10000.0D), 0.0F, 1.0F);
+        return (float) Math.min(distance / 10000.0D, 0.5D);
+    }
+
+    private float toDisplayNoise(final float percent) {
+        final float clamped = Mth.clamp(percent, 0.0F, 1.0F);
+        if (clamped <= 0.0F) {
+            return 0.0F;
+        }
+        if (clamped <= 0.5F) {
+            final float normalized = clamped / 0.5F;
+            final float eased = 1.0F - (float) Math.pow(1.0F - normalized, 2.5F);
+            return 0.5F * eased;
+        }
+        final float normalized = (clamped - 0.5F) / 0.5F;
+        final float eased = 1.0F - (float) Math.pow(1.0F - normalized, 2.5F);
+        return 0.5F + 0.5F * eased;
     }
 
     private void updateJammerOverlay() {
         jammerNoiseOverride = 0.0F;
+        jammerDisablesControls = false;
         if (minecraft == null || minecraft.level == null) {
             return;
         }
@@ -230,8 +253,8 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
 
         final Vec3 dronePos = new Vec3(status.x(), status.y(), status.z());
-        final double radius = 350.0D;
-        final AABB searchBox = new AABB(dronePos, dronePos).inflate(radius, radius, radius);
+        final double maxRadius = 600.0D;
+        final AABB searchBox = new AABB(dronePos, dronePos).inflate(maxRadius, maxRadius, maxRadius);
         float strongest = 0.0F;
 
         for (final RebEmitterEntity emitter : minecraft.level.getEntitiesOfClass(RebEmitterEntity.class, searchBox)) {
@@ -241,16 +264,27 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             final double dx = emitter.getX() - dronePos.x;
             final double dz = emitter.getZ() - dronePos.z;
             final double horizontalDist = Math.sqrt(dx * dx + dz * dz);
-            if (horizontalDist > radius) {
+            if (horizontalDist > maxRadius) {
                 continue;
             }
-            final double strength = 1.0D - (horizontalDist / radius);
-            final float overlay = (float) (0.5D + strength * 0.5D);
-            if (overlay > strongest) {
-                strongest = overlay;
+            final float strength = computeJammerStrength(horizontalDist);
+            if (strength > strongest) {
+                strongest = strength;
             }
         }
         jammerNoiseOverride = strongest;
+        jammerDisablesControls = strongest >= 1.0F;
+    }
+
+    private static float computeJammerStrength(final double horizontalDist) {
+        if (horizontalDist >= 600.0D) {
+            return 0.0F;
+        }
+        if (horizontalDist <= 300.0D) {
+            return 1.0F;
+        }
+        final double normalized = (horizontalDist - 300.0D) / 300.0D;
+        return (float) (1.0D - 0.99D * normalized);
     }
 
     private void drawStatusOverlay(final GuiGraphics graphics, final float partialTick) {
@@ -441,6 +475,11 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             final float strafe = 0.0F;
             final float thrustDelta = 0.0F;
             ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, strafe, vertical, thrustDelta);
+            return;
+        }
+
+        if (jammerDisablesControls) {
+            ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, 0.0F, -1.0F, 0.0F);
             return;
         }
 

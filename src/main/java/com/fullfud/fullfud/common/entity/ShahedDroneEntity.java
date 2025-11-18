@@ -21,6 +21,8 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.network.chat.Component;
+import net.minecraft.core.particles.ParticleOptions;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
@@ -64,7 +66,6 @@ import software.bernie.geckolib.core.animation.RawAnimation;
 import software.bernie.geckolib.core.object.PlayState;
 import software.bernie.geckolib.util.GeckoLibUtil;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +75,8 @@ import java.util.UUID;
 
 public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Float> DATA_THRUST = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Integer> DATA_COLOR = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Boolean> DATA_ON_LAUNCHER = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.BOOLEAN);
     private static final String TAG_THRUST = "Thrust";
     private static final String TAG_MOTION = "Motion";
     private static final String TAG_OWNER = "Owner";
@@ -83,6 +86,11 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_BODY_YAW = "BodyYaw";
     private static final String TAG_BODY_PITCH = "BodyPitch";
     private static final String TAG_REMOTE_INIT = "RemoteInit";
+    private static final String TAG_COLOR = "Color";
+    private static final String TAG_ON_LAUNCHER = "OnLauncher";
+    private static final String TAG_LAUNCHER_UUID = "LauncherUUID";
+    private static final String TAG_PROJECTILE_HITS = "ProjectileHits";
+    private static final String TAG_DAMAGE_TARGET_SPEED = "DamageTargetSpeed";
     private static final int STATUS_INTERVAL = 1;
     private static final int CONTROL_TIMEOUT_TICKS = 20;
     private static final double TICK_SECONDS = 1.0D / 20.0D;
@@ -122,6 +130,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double MAX_VISUAL_ROLL = 55.0D;
     private static final double VISUAL_ROLL_ACCEL = 540.0D;
     private static final double VISUAL_PITCH_ACCEL = 360.0D;
+    private static final double PROJECTILE_DAMAGE_DECEL_PER_SEC = 24.0D;
+    private static final double DAMAGE_SMOKE_PARTICLES_PER_TICK = 7.0D / 20.0D;
+    private static final double DAMAGE_SMOKE_SPREAD = 0.7D;
     private static final int CLIENT_INTERPOLATION_FACTOR = 100;
     private static final int CONTROL_HISTORY_TICKS = 100;
     private static final String TAG_LINEAR_VELOCITY = "LinearVelocity";
@@ -136,6 +147,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private float controlVertical;
     private float resolvedVerticalInput;
     private Vec3 linearVelocity = Vec3.ZERO;
+    private double crippledHorizontalTargetSpeed = -1.0D;
+    private double damageSmokeAccumulator;
+    private int projectileHitCount;
     private int controlTimeout;
     private double yawRate;
     private double pitchRate;
@@ -144,6 +158,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private ChunkPos lastTicketPos;
     private int lastTicketRadius;
     private int desiredChunkRadius;
+    private float jammerOverride;
+    private boolean jammerSuppressControls;
+    private static final double JAMMER_HARD_RADIUS = 300.0D;
+    private static final double JAMMER_MAX_RADIUS = 600.0D;
     private boolean armed;
     private double launchBaselineY;
     private UUID controllingPlayer;
@@ -171,6 +189,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private int holdTickYaw;
     private int holdTickPitch;
     private boolean cameraPinned;
+    private static final double LAUNCHER_VERTICAL_OFFSET = 0.25D;
+    private static final double LAUNCHER_FORWARD_OFFSET = 2.0D;
+    private static final double LAUNCHER_UP_OFFSET = 10.0D;
+    private static final double LAUNCHER_LAUNCH_SPEED = 260.0D / 3.6D;
+    private static final float LAUNCHER_LAUNCH_PITCH = -12.5F;
+    private int mountedLauncherId = -1;
+    private UUID mountedLauncherUuid;
 
     public ShahedDroneEntity(final EntityType<? extends ShahedDroneEntity> entityType, final Level level) {
         super(entityType, level);
@@ -188,11 +213,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.prevVisualPitch = bodyPitch;
         resetStrafeHistory();
         this.remoteInitialized = false;
-        this.visualPitch = bodyPitch;
-        this.prevVisualPitch = bodyPitch;
-        this.visualRoll = 0.0D;
-        this.prevVisualRoll = 0.0D;
-        this.remoteInitialized = false;
+        this.deltaYawSmooth = 0.0F;
+        this.deltaPitchSmooth = 0.0F;
+        this.holdTickYaw = 0;
+        this.holdTickPitch = 0;
         updateBoundingBox();
         this.refreshDimensions();
     }
@@ -208,30 +232,40 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     @Override
     protected void defineSynchedData() {
         this.entityData.define(DATA_THRUST, 0.25F);
+        this.entityData.define(DATA_COLOR, ShahedColor.WHITE.getId());
+        this.entityData.define(DATA_ON_LAUNCHER, false);
     }
 
     @Override
     public void tick() {
         super.tick();
         if (!level().isClientSide()) {
-            // Плавность для bodyPitch (как в примере DroneEntity baseTick: pitchO = this.getBodyPitch(); setBodyXRot(pitch * 0.9f);)
+            updateJammerState();
+        }
+
+        if (isOnLauncher()) {
+            if (!level().isClientSide) {
+                handleLauncherAttachment();
+            }
+            return;
+        }
+        if (!level().isClientSide()) {
             bodyPitchO = bodyPitch;
-            // Применяем затухание ДО обновления (как в примере: сначала затухание, потом применение дельты в travel())
-            bodyPitch = bodyPitch * 0.9f;
+            if (controllingPlayer == null) {
+                bodyPitch = bodyPitch * 0.9f;
+            }
             this.setXRot((float) bodyPitch);
-            
+
             updateControlTimeout();
             updateFlight();
-            
-            // Логирование позиции для проверки плавности движения
-            LOG.info("[SHAHED {}] Pos: x={}, y={}, z={} | Rot: yaw={}, pitch={} | bodyPitch={}, bodyPitchO={} | deltaPitchSmooth={} | velocity=({}, {}, {})", 
+
+            LOG.info("[SHAHED {}] Pos: x={}, y={}, z={} | Rot: yaw={}, pitch={} | bodyPitch={}, bodyPitchO={} | velocity=({}, {}, {})",
                 this.getStringUUID().substring(0, 8),
                 String.format("%.2f", this.getX()), String.format("%.2f", this.getY()), String.format("%.2f", this.getZ()),
                 String.format("%.2f", this.getYRot()), String.format("%.2f", this.getXRot()),
                 String.format("%.2f", bodyPitch), String.format("%.2f", bodyPitchO),
-                String.format("%.2f", deltaPitchSmooth),
                 String.format("%.2f", linearVelocity.x), String.format("%.2f", linearVelocity.y), String.format("%.2f", linearVelocity.z));
-            
+
             updateLaunchState();
             if (armed && detectImpact()) {
                 detonate();
@@ -248,15 +282,15 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             }
         }
     }
-    
+
     public double getBodyPitch() {
         return bodyPitch;
     }
-    
+
     public void setBodyPitch(double pitch) {
         bodyPitch = pitch;
     }
-    
+
     public double getBodyPitch(float tickDelta) {
         return Mth.lerp(0.6f * tickDelta, bodyPitchO, bodyPitch);
     }
@@ -375,6 +409,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             linearVelocity = linearVelocity.normalize().scale(MAX_AIRSPEED);
         }
 
+        applyProjectileDamageEffects(dt);
+
         final Vec3 velPerTick = linearVelocity.scale(TICK_SECONDS);
         this.setDeltaMovement(velPerTick);
         this.hasImpulse = true;
@@ -410,12 +446,61 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         );
     }
 
+    private void applyProjectileDamageEffects(final double dt) {
+        if (projectileHitCount <= 0) {
+            return;
+        }
+        final double horizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
+        if (crippledHorizontalTargetSpeed < 0.0D) {
+            crippledHorizontalTargetSpeed = horizontalSpeed;
+        }
+        final double slowdown = PROJECTILE_DAMAGE_DECEL_PER_SEC * dt;
+        crippledHorizontalTargetSpeed = Math.max(0.0D, crippledHorizontalTargetSpeed - slowdown);
+        if (horizontalSpeed > crippledHorizontalTargetSpeed) {
+            if (horizontalSpeed <= 1.0E-4D || crippledHorizontalTargetSpeed <= 0.0D) {
+                linearVelocity = new Vec3(0.0D, linearVelocity.y, 0.0D);
+            } else {
+                final Vec3 horizontal = new Vec3(linearVelocity.x, 0.0D, linearVelocity.z).normalize();
+                final Vec3 clamped = horizontal.scale(crippledHorizontalTargetSpeed);
+                linearVelocity = new Vec3(clamped.x, linearVelocity.y, clamped.z);
+            }
+        }
+        spawnDamageSmokeParticles();
+    }
+
+    private void spawnDamageSmokeParticles() {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        damageSmokeAccumulator += DAMAGE_SMOKE_PARTICLES_PER_TICK;
+        final int spawnCount = (int) damageSmokeAccumulator;
+        damageSmokeAccumulator -= spawnCount;
+        if (spawnCount <= 0) {
+            return;
+        }
+        final RandomSource random = this.random;
+        for (int i = 0; i < spawnCount; i++) {
+            final boolean large = random.nextFloat() < 0.65F;
+            final ParticleOptions particle = large ? ParticleTypes.CAMPFIRE_SIGNAL_SMOKE : ParticleTypes.CAMPFIRE_COSY_SMOKE;
+            final double offsetX = (random.nextDouble() - 0.5D) * DAMAGE_SMOKE_SPREAD;
+            final double offsetZ = (random.nextDouble() - 0.5D) * DAMAGE_SMOKE_SPREAD;
+            final double height = 0.6D + random.nextDouble() * 0.6D;
+            final double px = getX() + offsetX;
+            final double py = getY() + height;
+            final double pz = getZ() + offsetZ;
+            final double driftX = (random.nextDouble() - 0.5D) * 0.02D;
+            final double driftY = 0.02D + random.nextDouble() * 0.05D;
+            final double driftZ = (random.nextDouble() - 0.5D) * 0.02D;
+            serverLevel.sendParticles(particle, px, py, pz, 1, driftX, driftY, driftZ, 0.0D);
+        }
+    }
+
     private float resolveVerticalInput(final double baseAoa, final float throttle) {
-        final float manualThreshold = 0.05F;
         float input = controlVertical;
-        if (Math.abs(input) > manualThreshold) {
+        if (Math.abs(input) > 0.05F) {
             return input;
         }
+
         final float idleThreshold = 0.35F;
         if (throttle >= idleThreshold) {
             return 0.0F;
@@ -490,6 +575,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         return new Vec3(x, 0.0D, z).normalize();
     }
 
+
     private void integrateAttitude(final double aoaRad, final double slipRad, final double airspeed, final double dt) {
         final double controlFactor = Mth.clamp((airspeed - CONTROL_EAS_MIN) / (CONTROL_EAS_MAX - CONTROL_EAS_MIN), 0.1D, 1.0D);
         final double yawAuthority = Math.max(0.2D, controlFactor);
@@ -511,10 +597,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         pitchRate = approach(pitchRate, desiredPitchRate, pitchRateStep);
         pitchRate = Mth.clamp(pitchRate, -Math.toRadians(MAX_MANUAL_PITCH_RATE), Math.toRadians(MAX_MANUAL_PITCH_RATE));
         bodyPitch = Mth.clamp(bodyPitch + Math.toDegrees(pitchRate * dt), -85.0D, 85.0D);
-        
-        // Плавность для bodyPitch (как в примере DroneEntity)
         bodyPitch = Mth.clamp(bodyPitch - deltaPitchSmooth, -30.0D, 30.0D);
-        
         this.setXRot((float) bodyPitch);
         this.xRotO = this.getXRot();
     }
@@ -535,7 +618,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final int x = Mth.floor(getX());
         final int z = Mth.floor(getZ());
         final int terrainY = level().getHeight(Heightmap.Types.MOTION_BLOCKING, x, z);
-        final double desiredY = terrainY + 100.0D;
+        final double desiredY = terrainY + 10.0D;
         if (this.getY() >= desiredY) {
             return;
         }
@@ -548,6 +631,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.launchBaselineY = desiredY;
         this.visualPitch = bodyPitch;
         this.prevVisualPitch = bodyPitch;
+        this.visualRoll = 0.0D;
+        this.prevVisualRoll = 0.0D;
         resetStrafeHistory();
         updateBoundingBox();
     }
@@ -576,7 +661,27 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.bodyPitchO = this.bodyPitch;
         this.visualPitch = bodyPitch;
         this.prevVisualPitch = bodyPitch;
+        this.visualRoll = 0.0D;
+        this.prevVisualRoll = 0.0D;
         this.remoteInitialized = tag.getBoolean(TAG_REMOTE_INIT);
+        if (tag.contains(TAG_COLOR)) {
+            setColor(ShahedColor.byId(tag.getInt(TAG_COLOR)));
+        }
+        final boolean onLauncher = tag.getBoolean(TAG_ON_LAUNCHER);
+        entityData.set(DATA_ON_LAUNCHER, onLauncher);
+        if (onLauncher && tag.hasUUID(TAG_LAUNCHER_UUID)) {
+            mountedLauncherUuid = tag.getUUID(TAG_LAUNCHER_UUID);
+            mountedLauncherId = -1;
+        } else {
+            mountedLauncherUuid = null;
+            mountedLauncherId = -1;
+        }
+        this.projectileHitCount = tag.getInt(TAG_PROJECTILE_HITS);
+        this.crippledHorizontalTargetSpeed = tag.contains(TAG_DAMAGE_TARGET_SPEED) ? tag.getDouble(TAG_DAMAGE_TARGET_SPEED) : -1.0D;
+        if (this.projectileHitCount <= 0) {
+            this.crippledHorizontalTargetSpeed = -1.0D;
+        }
+        this.damageSmokeAccumulator = 0.0D;
         updateBoundingBox();
     }
 
@@ -598,6 +703,15 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         tag.putDouble(TAG_BODY_YAW, bodyYaw);
         tag.putDouble(TAG_BODY_PITCH, bodyPitch);
         tag.putBoolean(TAG_REMOTE_INIT, remoteInitialized);
+        tag.putInt(TAG_COLOR, getColor().getId());
+        if (isOnLauncher() && mountedLauncherUuid != null) {
+            tag.putBoolean(TAG_ON_LAUNCHER, true);
+            tag.putUUID(TAG_LAUNCHER_UUID, mountedLauncherUuid);
+        }
+        if (projectileHitCount > 0) {
+            tag.putInt(TAG_PROJECTILE_HITS, projectileHitCount);
+            tag.putDouble(TAG_DAMAGE_TARGET_SPEED, Math.max(0.0D, crippledHorizontalTargetSpeed));
+        }
     }
 
     @Override
@@ -621,7 +735,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 player.displayClientMessage(Component.translatable("message.fullfud.shahed.armed"), true);
                 return InteractionResult.FAIL;
             }
-            final ItemStack droneStack = new ItemStack(FullfudRegistries.SHAHED_ITEM.get());
+            final ItemStack droneStack = new ItemStack(getColor() == ShahedColor.BLACK
+                ? FullfudRegistries.SHAHED_BLACK_ITEM.get()
+                : FullfudRegistries.SHAHED_ITEM.get());
             if (!player.addItem(droneStack)) {
                 spawnAtLocation(droneStack);
             }
@@ -650,12 +766,59 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             releaseCameraFor(sender);
             return;
         }
+        if (!canReceiveControl()) {
+            return;
+        }
         this.controlForward = Mth.clamp(packet.forward(), -1.0F, 1.0F);
         this.controlStrafe = Mth.clamp(packet.strafe(), -1.0F, 1.0F);
         this.controlVertical = Mth.clamp(packet.vertical(), -1.0F, 1.0F);
         this.controlTimeout = CONTROL_TIMEOUT_TICKS;
         final float newThrust = Mth.clamp(getThrust() + packet.thrustDelta(), 0.0F, 1.0F);
         setThrust(newThrust);
+    }
+
+    private boolean canReceiveControl() {
+        return !jammerSuppressControls;
+    }
+
+    private void updateJammerState() {
+        jammerOverride = 0.0F;
+        jammerSuppressControls = false;
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        final double maxRadius = JAMMER_MAX_RADIUS;
+        final AABB searchBox = new AABB(
+            getX() - maxRadius, getY() - 5.0D, getZ() - maxRadius,
+            getX() + maxRadius, getY() + 5.0D, getZ() + maxRadius
+        );
+        for (final RebEmitterEntity emitter : serverLevel.getEntitiesOfClass(RebEmitterEntity.class, searchBox)) {
+            if (!emitter.hasBattery() || emitter.getChargeTicks() <= 0) {
+                continue;
+            }
+            final double dx = emitter.getX() - getX();
+            final double dz = emitter.getZ() - getZ();
+            final double horizontalDist = Math.sqrt(dx * dx + dz * dz);
+            final float strength = computeJammerStrength(horizontalDist);
+            if (strength > jammerOverride) {
+                jammerOverride = strength;
+            }
+        }
+        if (jammerOverride >= 1.0F) {
+            jammerSuppressControls = true;
+            setThrust(0.0F);
+        }
+    }
+
+    private static float computeJammerStrength(final double horizontalDist) {
+        if (horizontalDist >= JAMMER_MAX_RADIUS) {
+            return 0.0F;
+        }
+        if (horizontalDist <= JAMMER_HARD_RADIUS) {
+            return 1.0F;
+        }
+        final double normalized = (horizontalDist - JAMMER_HARD_RADIUS) / (JAMMER_MAX_RADIUS - JAMMER_HARD_RADIUS);
+        return (float) (1.0D - 0.99D * normalized);
     }
 
     private void broadcastStatus() {
@@ -673,8 +836,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private void sendStatusTo(final ServerPlayer viewer) {
-        final double distance = Math.sqrt(viewer.distanceToSqr(this));
-        final float noise = computeNoise(distance);
+        final double distance = computeSignalDistance(viewer);
+        final float noise = Math.max(computeNoise(distance), jammerOverride);
         final boolean signalLost = distance > 10000.0D;
         final FlightTelemetry data = telemetry == null ? FlightTelemetry.ZERO : telemetry;
         final ShahedStatusPacket packet = new ShahedStatusPacket(
@@ -762,7 +925,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private void resetStrafeHistory() {
-        Arrays.fill(strafeHistory, 0.0F);
+        for (int i = 0; i < CONTROL_HISTORY_TICKS; i++) {
+            strafeHistory[i] = 0.0F;
+        }
         strafeHistoryIndex = 0;
         strafeHistorySize = 0;
     }
@@ -805,20 +970,24 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         super.lerpTo(x, y, z, yaw, pitch, smoothSteps, teleport);
     }
 
+    private double computeSignalDistance(final ServerPlayer viewer) {
+        if (controllingPlayer != null && controllingPlayer.equals(viewer.getUUID()) && controlSession != null) {
+            if (controlSession.originPos == null) {
+                return 0.0D;
+            }
+            if (!level().dimension().equals(controlSession.originDimension)) {
+                return Double.POSITIVE_INFINITY;
+            }
+            return Math.sqrt(controlSession.originPos.distanceToSqr(this.position()));
+        }
+        return Math.sqrt(viewer.distanceToSqr(this));
+    }
+
     private static float computeNoise(final double distance) {
-        if (distance <= 1000.0D) {
-            return 0.2F;
+        if (distance <= 0.0D) {
+            return 0.0F;
         }
-        if (distance <= 2500.0D) {
-            return 0.45F;
-        }
-        if (distance <= 5000.0D) {
-            return 0.7F;
-        }
-        if (distance <= 10000.0D) {
-            return 0.9F;
-        }
-        return 1.0F;
+        return (float) Math.min(distance / 10000.0D, 0.5D);
     }
 
     private void setThrust(final float thrust) {
@@ -838,11 +1007,22 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     public boolean hurt(final DamageSource source, final float amount) {
         if (source.getDirectEntity() instanceof Projectile) {
             if (!level().isClientSide()) {
-                detonate();
+                handleProjectileImpact();
             }
             return true;
         }
         return super.hurt(source, amount);
+    }
+
+    private void handleProjectileImpact() {
+        projectileHitCount++;
+        if (projectileHitCount >= 2) {
+            detonate();
+            return;
+        }
+        final double horizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
+        crippledHorizontalTargetSpeed = Math.max(horizontalSpeed, 0.0D);
+        damageSmokeAccumulator = 0.0D;
     }
 
     @Override
@@ -853,6 +1033,110 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     @Override
     public boolean isPushable() {
         return false;
+    }
+
+    public ShahedColor getColor() {
+        return ShahedColor.byId(entityData.get(DATA_COLOR));
+    }
+
+    public void setColor(final ShahedColor color) {
+        entityData.set(DATA_COLOR, color.getId());
+    }
+
+    public void setLaunchVelocity(final Vec3 velocity) {
+        this.linearVelocity = velocity;
+        setDeltaMovement(linearVelocity.scale(TICK_SECONDS));
+    }
+
+    public boolean isOnLauncher() {
+        return entityData.get(DATA_ON_LAUNCHER);
+    }
+
+    public UUID getLauncherUuid() {
+        return mountedLauncherUuid;
+    }
+
+    public void mountLauncher(final ShahedLauncherEntity launcher) {
+        mountedLauncherId = launcher.getId();
+        mountedLauncherUuid = launcher.getUUID();
+        entityData.set(DATA_ON_LAUNCHER, true);
+        setNoGravity(true);
+        linearVelocity = Vec3.ZERO;
+        setDeltaMovement(Vec3.ZERO);
+        updateLauncherPose(launcher);
+    }
+
+    public void launchFromLauncher(final ShahedLauncherEntity launcher) {
+        final float yaw = launcher.getYRot();
+        final Vec3 forward = Vec3.directionFromRotation(0.0F, yaw).normalize();
+        final Vec3 base = launcher.position().add(0.0D, LAUNCHER_VERTICAL_OFFSET, 0.0D);
+        final Vec3 spawn = base.add(forward.scale(LAUNCHER_FORWARD_OFFSET)).add(0.0D, LAUNCHER_UP_OFFSET, 0.0D);
+        setPos(spawn.x, spawn.y, spawn.z);
+        releaseFromLauncher(new Vec3(forward.x * LAUNCHER_LAUNCH_SPEED, 0.0D, forward.z * LAUNCHER_LAUNCH_SPEED), yaw);
+    }
+
+    public void releaseFromLauncher(final Vec3 velocity, final float launcherYaw) {
+        entityData.set(DATA_ON_LAUNCHER, false);
+        setNoGravity(false);
+        mountedLauncherId = -1;
+        mountedLauncherUuid = null;
+        setLaunchVelocity(velocity);
+        final float yaw = launcherYaw;
+        setYRot(yaw);
+        setYBodyRot(yaw);
+        setYHeadRot(yaw);
+        this.bodyYaw = yaw;
+        this.bodyPitch = LAUNCHER_LAUNCH_PITCH;
+        this.visualPitch = LAUNCHER_LAUNCH_PITCH;
+        this.prevVisualPitch = LAUNCHER_LAUNCH_PITCH;
+        setXRot(LAUNCHER_LAUNCH_PITCH);
+    }
+
+    private void handleLauncherAttachment() {
+        setDeltaMovement(Vec3.ZERO);
+        final ShahedLauncherEntity launcher = resolveLauncher();
+        if (launcher != null) {
+            updateLauncherPose(launcher);
+            return;
+        }
+        if (!level().isClientSide) {
+            final ItemStack stack = new ItemStack(getColor() == ShahedColor.BLACK
+                ? FullfudRegistries.SHAHED_BLACK_ITEM.get()
+                : FullfudRegistries.SHAHED_ITEM.get());
+            spawnAtLocation(stack);
+            discard();
+        }
+    }
+
+    private ShahedLauncherEntity resolveLauncher() {
+        if (mountedLauncherId > 0) {
+            final Entity entity = level().getEntity(mountedLauncherId);
+            if (entity instanceof ShahedLauncherEntity launcher) {
+                return launcher;
+            }
+        }
+        if (mountedLauncherUuid != null && level() instanceof ServerLevel serverLevel) {
+            final Entity entity = serverLevel.getEntity(mountedLauncherUuid);
+            if (entity instanceof ShahedLauncherEntity launcher) {
+                mountedLauncherId = launcher.getId();
+                return launcher;
+            }
+        }
+        return null;
+    }
+
+    private void updateLauncherPose(final ShahedLauncherEntity launcher) {
+        final Vec3 anchor = launcher.position().add(0.0D, LAUNCHER_VERTICAL_OFFSET, 0.0D);
+        setPos(anchor.x, anchor.y, anchor.z);
+        final float yaw = launcher.getYRot();
+        setYRot(yaw);
+        setYBodyRot(yaw);
+        setYHeadRot(yaw);
+        this.bodyYaw = yaw;
+        this.bodyPitch = 0.0D;
+        this.visualPitch = 0.0D;
+        this.prevVisualPitch = 0.0D;
+        setXRot(0.0F);
     }
 
     @Override
@@ -974,7 +1258,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         if (controlSession != null && player.gameMode.getGameModeForPlayer() != GameType.SPECTATOR) {
             player.setGameMode(GameType.SPECTATOR);
         }
-
+        
         if (player.level() != level()) {
             player.teleportTo((ServerLevel) level(), getX(), getY() + 1.0D, getZ(), getYRot(), getXRot());
             if (cameraPinned) {
@@ -984,6 +1268,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             player.connection.teleport(getX(), getY() + 1.0D, getZ(), player.getYRot(), player.getXRot());
             if (cameraPinned) {
                 player.connection.send(new ClientboundSetCameraPacket(this));
+                // Удалена строка с несуществующим пакетом
             }
         }
 
@@ -1101,11 +1386,20 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.deltaPitchSmooth = 0.0F;
         this.holdTickYaw = 0;
         this.holdTickPitch = 0;
+        resetStrafeHistory();
     }
 
     public boolean beginRemoteControl(final ServerPlayer player) {
         if (controllingPlayer != null && !controllingPlayer.equals(player.getUUID())) {
             return false;
+        }
+        if (isOnLauncher()) {
+            final ShahedLauncherEntity launcher = resolveLauncher();
+            if (launcher != null) {
+                launchFromLauncher(launcher);
+            } else {
+                entityData.set(DATA_ON_LAUNCHER, false);
+            }
         }
         if (controlSession == null) {
             controlSession = new ControlSession(player.level().dimension(), player.position(), player.getYRot(), player.getXRot(), player.gameMode.getGameModeForPlayer());
@@ -1115,10 +1409,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             ensureFlightAltitude();
             final double launchSpeed = Math.min(MAX_AIRSPEED * 0.95D, INITIAL_LAUNCH_SPEED);
             this.linearVelocity = forwardGroundVector().scale(launchSpeed);
-            this.bodyPitch = 0.0D;
-            this.setXRot(0.0F);
-            this.visualPitch = 0.0D;
-            this.prevVisualPitch = 0.0D;
             setThrust(1.0F);
             this.engineOutput = 1.0D;
             this.remoteInitialized = true;
@@ -1139,7 +1429,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         controllingPlayer = null;
         controlSession = null;
         removeAvatar();
-        forceReturnCamera(player);
         cameraPinned = false;
     }
 
@@ -1164,7 +1453,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         final ServerLevel origin = player.getServer().getLevel(controlSession.originDimension);
         if (origin != null) {
-            player.teleportTo(origin, controlSession.originPos.x, controlSession.originPos.y, controlSession.originPos.z, controlSession.originYaw, controlSession.originPitch);
+            player.teleportTo(origin,
+                    controlSession.originPos.x,
+                    controlSession.originPos.y,
+                    controlSession.originPos.z,
+                    player.getYRot(),
+                    player.getXRot());
         }
         player.setInvisible(false);
         player.setSilent(false);
@@ -1186,7 +1480,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
         GameProfile profile = new GameProfile(UUID.randomUUID(), player.getGameProfile().getName());
         player.getGameProfile().getProperties().forEach((name, prop) -> {
-            profile.getProperties().put(name, new com.mojang.authlib.properties.Property(prop.getName(), prop.getValue(), prop.getSignature()));
+            profile.getProperties().put(name, new Property(prop.getName(), prop.getValue(), prop.getSignature()));
         });
 
         avatar = new RemotePilotFakePlayer(serverLevel, profile, player.getUUID());
@@ -1243,21 +1537,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         LOG.info("[DRONE {}] forceReturnCamera: send SetCameraPacket -> player", this.getStringUUID());
         player.connection.send(new ClientboundSetCameraPacket(player));
-        final var server = player.getServer();
-        if (server != null) {
-            server.execute(() -> {
-                if (player.connection != null) {
-                    LOG.info("[DRONE {}] forceReturnCamera: resend#1", this.getStringUUID());
-                    player.connection.send(new ClientboundSetCameraPacket(player));
-                }
-            });
-            server.execute(() -> {
-                if (player.connection != null) {
-                    LOG.info("[DRONE {}] forceReturnCamera: resend#2", this.getStringUUID());
-                    player.connection.send(new ClientboundSetCameraPacket(player));
-                }
-            });
-        }
     }
 
     private void broadcastAvatarInfo(final boolean add) {

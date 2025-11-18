@@ -2,10 +2,13 @@ package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.FullfudMod;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
+import com.fullfud.fullfud.common.entity.ShahedColor;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
+import com.fullfud.fullfud.common.entity.ShahedLauncherEntity;
 import com.fullfud.fullfud.common.item.MonitorItem;
 import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.common.item.RebEmitterItem;
+import com.fullfud.fullfud.common.item.ShahedLauncherItem;
 import com.fullfud.fullfud.common.item.ShahedDroneItem;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import net.minecraft.resources.ResourceLocation;
@@ -36,7 +39,15 @@ public final class FullfudRegistries {
     );
 
     public static final RegistryObject<Item> SHAHED_ITEM = ITEMS.register("shahed_136", () ->
-        new ShahedDroneItem(new Item.Properties().stacksTo(1))
+        new ShahedDroneItem(new Item.Properties().stacksTo(1), ShahedColor.WHITE)
+    );
+
+    public static final RegistryObject<Item> SHAHED_BLACK_ITEM = ITEMS.register("shahed_136_black", () ->
+        new ShahedDroneItem(new Item.Properties().stacksTo(1), ShahedColor.BLACK)
+    );
+
+    public static final RegistryObject<Item> SHAHED_LAUNCHER_ITEM = ITEMS.register("shahed_launcher", () ->
+        new ShahedLauncherItem(new Item.Properties().stacksTo(1))
     );
 
     public static final RegistryObject<Item> REB_EMITTER_ITEM = ITEMS.register("reb_emitter", () ->
@@ -53,6 +64,14 @@ public final class FullfudRegistries {
             .clientTrackingRange(128)
             .updateInterval(2)
             .build(resource("shahed_136").toString())
+    );
+
+    public static final RegistryObject<EntityType<ShahedLauncherEntity>> SHAHED_LAUNCHER_ENTITY = ENTITY_TYPES.register("shahed_launcher", () ->
+        EntityType.Builder.<ShahedLauncherEntity>of(ShahedLauncherEntity::new, MobCategory.MISC)
+            .sized(1.0F, 1.0F)
+            .clientTrackingRange(64)
+            .updateInterval(10)
+            .build(resource("shahed_launcher").toString())
     );
 
     public static final RegistryObject<EntityType<RebEmitterEntity>> REB_EMITTER_ENTITY = ENTITY_TYPES.register("reb_emitter", () ->

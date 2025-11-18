@@ -1,10 +1,14 @@
 {
   "itemGroup.fullfud": "Fullfud",
+  "itemGroup.fullfud.main": "Fullfud",
   "item.fullfud.monitor_control": "Monitor",
-  "item.fullfud.shahed_136": "Shahed-136",
+  "item.fullfud.shahed_136": "Shahed-136 (White)",
+  "item.fullfud.shahed_136_black": "Shahed-136 (Black)",
   "item.fullfud.reb_emitter": "REB Emitter",
+  "item.fullfud.shahed_launcher": "Shahed Launcher",
   "item.fullfud.reb_battery": "REB Battery",
   "entity.fullfud.shahed_136": "Shahed-136",
+  "entity.fullfud.shahed_launcher": "Shahed Launcher",
   "menu.fullfud.shahed_monitor": "Shahed Monitor",
   "message.fullfud.monitor.no_link": "Monitor is not linked to a Shahed.",
   "message.fullfud.monitor.drone_missing": "Linked Shahed is missing.",
@@ -17,5 +21,7 @@
   "key.categories.fullfud": "Shahed Control",
   "key.fullfud.power_up": "Increase Power",
   "key.fullfud.power_down": "Decrease Power",
-  "item.fullfud.reb_battery.charge": "Charge: %s"
+  "item.fullfud.reb_battery.charge": "Charge: %s",
+  "color.fullfud.shahed.white": "White",
+  "color.fullfud.shahed.black": "Black"
 }
