@@ -197,6 +197,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private int mountedLauncherId = -1;
     private UUID mountedLauncherUuid;
 
+    private int lerpSteps;
+    private double lerpX;
+    private double lerpY;
+    private double lerpZ;
+    private double lerpYRot;
+    private double lerpXRot;
+
     public ShahedDroneEntity(final EntityType<? extends ShahedDroneEntity> entityType, final Level level) {
         super(entityType, level);
         this.noPhysics = false;
@@ -239,6 +246,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     @Override
     public void tick() {
         super.tick();
+
         if (!level().isClientSide()) {
             updateJammerState();
         }
@@ -249,23 +257,39 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             }
             return;
         }
-        if (!level().isClientSide()) {
-            bodyPitchO = bodyPitch;
-            if (controllingPlayer == null) {
+
+        bodyPitchO = bodyPitch;
+
+        if (!level().isClientSide() || isControlledByLocalInstance()) {
+            if (!level().isClientSide() && controllingPlayer == null) {
                 bodyPitch = bodyPitch * 0.9f;
             }
             this.setXRot((float) bodyPitch);
-
             updateControlTimeout();
             updateFlight();
+        }
 
-            LOG.info("[SHAHED {}] Pos: x={}, y={}, z={} | Rot: yaw={}, pitch={} | bodyPitch={}, bodyPitchO={} | velocity=({}, {}, {})",
-                this.getStringUUID().substring(0, 8),
-                String.format("%.2f", this.getX()), String.format("%.2f", this.getY()), String.format("%.2f", this.getZ()),
-                String.format("%.2f", this.getYRot()), String.format("%.2f", this.getXRot()),
-                String.format("%.2f", bodyPitch), String.format("%.2f", bodyPitchO),
-                String.format("%.2f", linearVelocity.x), String.format("%.2f", linearVelocity.y), String.format("%.2f", linearVelocity.z));
+        if (level().isClientSide() && !isControlledByLocalInstance()) {
+            if (this.lerpSteps > 0) {
+                double d0 = this.getX() + (this.lerpX - this.getX()) / (double) this.lerpSteps;
+                double d1 = this.getY() + (this.lerpY - this.getY()) / (double) this.lerpSteps;
+                double d2 = this.getZ() + (this.lerpZ - this.getZ()) / (double) this.lerpSteps;
+                double d3 = Mth.wrapDegrees(this.lerpYRot - (double) this.getYRot());
+                this.setYRot(this.getYRot() + (float) d3 / (float) this.lerpSteps);
+                double d4 = Mth.wrapDegrees(this.lerpXRot - (double) this.getXRot());
+                this.setXRot(this.getXRot() + (float) d4 / (float) this.lerpSteps);
+                this.lerpSteps--;
+                this.setPos(d0, d1, d2);
+                this.setRot(this.getYRot(), this.getXRot());
+            }
+        }
 
+        if (level().isClientSide() && isControlledByLocalInstance()) {
+            this.setYRot((float) bodyYaw);
+            this.setXRot((float) bodyPitch);
+        }
+
+        if (!level().isClientSide()) {
             updateLaunchState();
             if (armed && detectImpact()) {
                 detonate();
@@ -281,6 +305,19 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 broadcastStatus();
             }
         }
+    }
+
+    @Override
+    public void lerpTo(double x, double y, double z, float yaw, float pitch, int posRotationIncrements, boolean teleport) {
+        if (this.isControlledByLocalInstance()) {
+            return;
+        }
+        this.lerpX = x;
+        this.lerpY = y;
+        this.lerpZ = z;
+        this.lerpYRot = yaw;
+        this.lerpXRot = pitch;
+        this.lerpSteps = posRotationIncrements;
     }
 
     public double getBodyPitch() {
@@ -964,12 +1001,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         setBoundingBox(box);
     }
 
-    @Override
-    public void lerpTo(final double x, final double y, final double z, final float yaw, final float pitch, final int steps, final boolean teleport) {
-        final int smoothSteps = Math.max(steps, 5);
-        super.lerpTo(x, y, z, yaw, pitch, smoothSteps, teleport);
-    }
-
     private double computeSignalDistance(final ServerPlayer viewer) {
         if (controllingPlayer != null && controllingPlayer.equals(viewer.getUUID()) && controlSession != null) {
             if (controlSession.originPos == null) {
@@ -1268,7 +1299,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             player.connection.teleport(getX(), getY() + 1.0D, getZ(), player.getYRot(), player.getXRot());
             if (cameraPinned) {
                 player.connection.send(new ClientboundSetCameraPacket(this));
-                // Удалена строка с несуществующим пакетом
             }
         }
 
@@ -1514,7 +1544,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private void dbg(ServerPlayer p, String msg) {
-        LOG.info("[DRONE {}] {}", this.getStringUUID(), msg);
         if (p != null) {
             p.displayClientMessage(Component.literal("[SHAHED] " + msg), true);
         }
@@ -1535,7 +1564,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             LOG.warn("[DRONE {}] forceReturnCamera: player or connection null", this.getStringUUID());
             return;
         }
-        LOG.info("[DRONE {}] forceReturnCamera: send SetCameraPacket -> player", this.getStringUUID());
         player.connection.send(new ClientboundSetCameraPacket(player));
     }
 
@@ -1626,7 +1654,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                     owner.hurt(source, amount);
                 }
                 forwardingDamage = false;
-            }
+            } 
             return super.hurt(source, amount);
         }
 
