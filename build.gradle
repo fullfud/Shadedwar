@@ -7,7 +7,7 @@ version = "1.0.0"
 group = "com.fullfud"
 
 base {
-    archivesName = "fullfud"
+    archivesName = "shadedwar"
 }
 
 java {
@@ -77,7 +77,7 @@ tasks.withType(JavaCompile).configureEach {
 
 jar {
     manifest {
-        attributes(["Specification-Title": "fullfud",
+        attributes(["Specification-Title": "shadedwar",
                     "Specification-Vendor": "fullfud",
                     "Specification-Version": "${project.version}",
                     "Implementation-Title": project.name,

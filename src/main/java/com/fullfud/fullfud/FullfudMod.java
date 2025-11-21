@@ -31,8 +31,6 @@ public final class FullfudMod {
             modEventBus.addListener(this::onClientSetup);
             ShahedClientHandler.registerClientEvents(modEventBus);
         });
-
-        LOGGER.info("Fullfud mod initialized. EventBus: {}", modEventBus);
     }
 
     private void onCommonSetup(final FMLCommonSetupEvent event) {

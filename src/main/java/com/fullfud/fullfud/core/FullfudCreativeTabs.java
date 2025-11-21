@@ -18,7 +18,7 @@ public final class FullfudCreativeTabs {
 
     public static final RegistryObject<CreativeModeTab> FULLFUD = CREATIVE_TABS.register("main", () ->
         CreativeModeTab.builder()
-            .title(Component.translatable("itemGroup.fullfud.main"))
+            .title(Component.literal("Shaded war"))
             .icon(() -> new ItemStack(FullfudRegistries.SHAHED_ITEM.get()))
             .displayItems((parameters, output) ->
                 FullfudRegistries.ITEMS.getEntries().stream()
