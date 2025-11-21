@@ -19,11 +19,16 @@ public class ShahedDroneRenderer extends GeoEntityRenderer<ShahedDroneEntity> {
     @Override
     public void render(final ShahedDroneEntity entity, final float entityYaw, final float partialTick, final PoseStack poseStack, final MultiBufferSource bufferSource, final int packedLight) {
         poseStack.pushPose();
+        
         poseStack.mulPose(Axis.YP.rotationDegrees(180.0F - entityYaw));
+        
         final float pitch = entity.getVisualPitch(partialTick);
-        poseStack.mulPose(Axis.XP.rotationDegrees(pitch));
-        poseStack.mulPose(Axis.ZP.rotationDegrees(entity.getVisualRoll(partialTick)));
+        poseStack.mulPose(Axis.XP.rotationDegrees(pitch / 3.0F));
+        
+        poseStack.mulPose(Axis.ZP.rotationDegrees(entity.getVisualRoll(partialTick) * 2.0F));
+        
         poseStack.translate(0.0D, -0.25D, 0.0D);
+        
         super.render(entity, entityYaw, partialTick, poseStack, bufferSource, packedLight);
         poseStack.popPose();
     }

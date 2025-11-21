@@ -483,7 +483,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             return;
         }
 
-        final float vertical = boolValue(ascendPressed) - boolValue(descendPressed);
+        final float pitchInput = boolValue(ascendPressed) - boolValue(descendPressed);
         final float strafe = boolValue(strafeRightPressed) - boolValue(strafeLeftPressed);
         float thrustDelta = 0.0F;
         if (increasePowerPressed) {
@@ -493,7 +493,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             thrustDelta -= 0.02F;
         }
 
-        ShahedClientHandler.sendControlPacket(menu.getDroneId(), 0.0F, strafe, vertical, thrustDelta);
+        ShahedClientHandler.sendControlPacket(menu.getDroneId(), pitchInput, strafe, 0.0F, thrustDelta);
     }
 
     private static float boolValue(final boolean down) {

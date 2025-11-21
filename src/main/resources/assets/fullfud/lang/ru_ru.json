@@ -22,6 +22,11 @@
   "key.fullfud.power_up": "Увеличить тягу",
   "key.fullfud.power_down": "Уменьшить тягу",
   "item.fullfud.reb_battery.charge": "Заряд: %s",
+  "status.fullfud.reb.working": "Работает",
+  "status.fullfud.reb.low_power": "Недостаточно энергии",
+  "status.fullfud.reb.no_battery": "Нет батареи",
+  "status.fullfud.reb.starting": "Запуск",
+  "status.fullfud.reb.charge": "Заряд: %s%%",
   "color.fullfud.shahed.white": "Белый",
   "color.fullfud.shahed.black": "Чёрный"
 }

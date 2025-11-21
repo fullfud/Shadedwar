@@ -22,6 +22,11 @@
   "key.fullfud.power_up": "Increase Power",
   "key.fullfud.power_down": "Decrease Power",
   "item.fullfud.reb_battery.charge": "Charge: %s",
+  "status.fullfud.reb.working": "Operational",
+  "status.fullfud.reb.low_power": "Insufficient energy",
+  "status.fullfud.reb.no_battery": "No battery",
+  "status.fullfud.reb.starting": "Booting up",
+  "status.fullfud.reb.charge": "Charge: %s%%",
   "color.fullfud.shahed.white": "White",
   "color.fullfud.shahed.black": "Black"
 }

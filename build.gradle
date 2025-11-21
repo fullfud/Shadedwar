@@ -94,3 +94,7 @@ processResources {
         expand(["version": project.version])
     }
 }
+
+tasks.named("build") {
+    dependsOn("reobfJar")
+}

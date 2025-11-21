@@ -37,7 +37,6 @@ import java.util.concurrent.ThreadLocalRandom;
 
 @OnlyIn(value = Dist.CLIENT)
 class _ALGuard {
-    // Маркер, чтобы сборщики не сносили LWJGL OpenAL импорты под сервер
 }
 
 public class RebEmitterEntity extends Entity implements GeoEntity {
@@ -50,12 +49,11 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
 
     private static final int STARTUP_DURATION_TICKS = 3 * 20;
 
-    // ===== Белый шум: параметры =====
-    private static final float NOISE_MAX_VOLUME = 0.20f;  // 20% в упор
-    private static final float NOISE_RADIUS     = 15.0f;  // 15 блоков до нуля
-    private static final int   SAMPLE_RATE_HZ   = 22050;  // частота дискретизации
-    private static final int   BUFFER_SAMPLES   = 2048;   // размер одного буфера
-    private static final int   NUM_BUFFERS      = 4;      // кольцевые буферы
+    private static final float NOISE_MAX_VOLUME = 0.20f; 
+    private static final float NOISE_RADIUS     = 15.0f; 
+    private static final int   SAMPLE_RATE_HZ   = 22050; 
+    private static final int   BUFFER_SAMPLES   = 2048;  
+    private static final int   NUM_BUFFERS      = 4;     
 
     private ItemStack battery = ItemStack.EMPTY;
     private int chargeTicks;
@@ -66,7 +64,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
 
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
 
-    // ===== Клиентские флаги для переходов (без пакетов) =====
     private boolean cPrevActiveCondition;
 
     public RebEmitterEntity(final EntityType<? extends RebEmitterEntity> type, final Level level) {
@@ -273,9 +270,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
         return animationCache;
     }
 
-    // ===============================
-    // КЛИЕНТ: процедурный белый шум (OpenAL)
-    // ===============================
     private void clientTickNoise() {
         final boolean shouldPlay = hasBattery() && hasFinishedStartup() && chargeTicks > 0 && !this.isRemoved();
         if (shouldPlay) {
@@ -287,12 +281,8 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
         cPrevActiveCondition = shouldPlay;
     }
 
-    // ===============================
-    // ВНУТРЕННИЙ КЛИЕНТСКИЙ МЕНЕДЖЕР ШУМА
-    // ===============================
     @OnlyIn(Dist.CLIENT)
     private static final class ClientWhiteNoiseManager {
-        // Один поток на сущность (weak для автоочистки)
         private static final Map<RebEmitterEntity, WhiteNoiseALStream> STREAMS = new WeakHashMap<>();
 
         static void ensure(RebEmitterEntity e) {
@@ -310,9 +300,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
         }
     }
 
-    // ===============================
-    // ПРОЦЕДУРНЫЙ СТРИМИНГ БЕЛОГО ШУМА В OPENAL
-    // ===============================
     @OnlyIn(Dist.CLIENT)
     private static final class WhiteNoiseALStream {
         private final RebEmitterEntity emitter;
@@ -321,7 +308,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
         private final int[] buffers = new int[NUM_BUFFERS];
         private boolean disposed = false;
 
-        // переиспользуемый буфер для данных
         private ShortBuffer scratch;
 
         WhiteNoiseALStream(RebEmitterEntity emitter) {
@@ -331,7 +317,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
 
         private void initAL() {
             try {
-                // Инициализация — используем контекст OpenAL, созданный самим Minecraft.
                 sourceId = org.lwjgl.openal.AL10.alGenSources();
                 org.lwjgl.openal.AL10.alSourcef(sourceId, org.lwjgl.openal.AL10.AL_PITCH, 1.0f);
                 org.lwjgl.openal.AL10.alSourcef(sourceId, org.lwjgl.openal.AL10.AL_GAIN, 0.0f);
@@ -339,13 +324,10 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
                 org.lwjgl.openal.AL10.alSource3f(sourceId, org.lwjgl.openal.AL10.AL_VELOCITY, 0, 0, 0);
                 org.lwjgl.openal.AL10.alSourcei(sourceId, org.lwjgl.openal.AL10.AL_LOOPING, org.lwjgl.openal.AL10.AL_FALSE);
 
-                // Буферы
                 for (int i = 0; i < NUM_BUFFERS; i++) buffers[i] = org.lwjgl.openal.AL10.alGenBuffers();
 
-                // Scratch-буфер
                 scratch = org.lwjgl.system.MemoryUtil.memAllocShort(BUFFER_SAMPLES);
 
-                // Предзаполняем
                 for (int i = 0; i < NUM_BUFFERS; i++) {
                     fillWhiteNoisePCM(scratch, BUFFER_SAMPLES);
                     org.lwjgl.openal.AL10.alBufferData(buffers[i], org.lwjgl.openal.AL10.AL_FORMAT_MONO16, scratch, SAMPLE_RATE_HZ);
@@ -354,7 +336,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
 
                 org.lwjgl.openal.AL10.alSourcePlay(sourceId);
             } catch (Throwable t) {
-                // На случай если у окружения нет OpenAL
                 disposeNative();
             }
         }
@@ -365,10 +346,8 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
                 return;
             }
 
-            // позиция источника: к эмиттеру
             org.lwjgl.openal.AL10.alSource3f(sourceId, org.lwjgl.openal.AL10.AL_POSITION, (float) emitter.getX(), (float) emitter.getY(), (float) emitter.getZ());
 
-            // дистанция до игрока
             final Player p = net.minecraft.client.Minecraft.getInstance().player;
             if (p == null) { stopAndDispose(); return; }
             final double dx = p.getX() - emitter.getX();
@@ -376,14 +355,12 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
             final double dz = p.getZ() - emitter.getZ();
             final double dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
 
-            // линейная огибающая громкости
             float gain = 0.0f;
             if (dist < NOISE_RADIUS) {
                 gain = NOISE_MAX_VOLUME * (1.0f - (float)(dist / NOISE_RADIUS));
             }
             org.lwjgl.openal.AL10.alSourcef(sourceId, org.lwjgl.openal.AL10.AL_GAIN, gain);
 
-            // Обновление очереди буферов: докидываем новый шум в обработанные
             int processed = org.lwjgl.openal.AL10.alGetSourcei(sourceId, org.lwjgl.openal.AL10.AL_BUFFERS_PROCESSED);
             while (processed-- > 0) {
                 int buf = org.lwjgl.openal.AL10.alSourceUnqueueBuffers(sourceId);
@@ -393,7 +370,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
                 org.lwjgl.openal.AL10.alSourceQueueBuffers(sourceId, buf);
             }
 
-            // Если по какой-либо причине остановился — перезапустим
             int state = org.lwjgl.openal.AL10.alGetSourcei(sourceId, org.lwjgl.openal.AL10.AL_SOURCE_STATE);
             if (state != org.lwjgl.openal.AL10.AL_PLAYING) {
                 org.lwjgl.openal.AL10.alSourcePlay(sourceId);
@@ -406,7 +382,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
             try {
                 if (sourceId != 0) {
                     org.lwjgl.openal.AL10.alSourceStop(sourceId);
-                    // снять всё из очереди
                     int queued = org.lwjgl.openal.AL10.alGetSourcei(sourceId, org.lwjgl.openal.AL10.AL_BUFFERS_QUEUED);
                     while (queued-- > 0) {
                         org.lwjgl.openal.AL10.alSourceUnqueueBuffers(sourceId);
@@ -429,14 +404,10 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
             } catch (Throwable ignored) {}
         }
 
-        /**
-         * Заполняет ShortBuffer белым шумом mono16 [-32768..32767]
-         */
         private void fillWhiteNoisePCM(ShortBuffer out, int samples) {
             out.clear();
             final ThreadLocalRandom rnd = ThreadLocalRandom.current();
             for (int i = 0; i < samples; i++) {
-                // Равномерный шум [-1,1) -> short
                 float f = rnd.nextFloat() * 2f - 1f;
                 short s = (short) (f * 32767);
                 out.put(s);

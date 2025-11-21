@@ -77,6 +77,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Float> DATA_THRUST = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Integer> DATA_COLOR = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> DATA_ON_LAUNCHER = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.BOOLEAN);
+    private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.FLOAT);
+
     private static final String TAG_THRUST = "Thrust";
     private static final String TAG_MOTION = "Motion";
     private static final String TAG_OWNER = "Owner";
@@ -85,58 +87,47 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_LAUNCH_Y = "LaunchY";
     private static final String TAG_BODY_YAW = "BodyYaw";
     private static final String TAG_BODY_PITCH = "BodyPitch";
+    private static final String TAG_BODY_ROLL = "BodyRoll";
     private static final String TAG_REMOTE_INIT = "RemoteInit";
     private static final String TAG_COLOR = "Color";
     private static final String TAG_ON_LAUNCHER = "OnLauncher";
     private static final String TAG_LAUNCHER_UUID = "LauncherUUID";
     private static final String TAG_PROJECTILE_HITS = "ProjectileHits";
     private static final String TAG_DAMAGE_TARGET_SPEED = "DamageTargetSpeed";
+    private static final String TAG_LINEAR_VELOCITY = "LinearVelocity";
+    private static final String TAG_FUEL = "FuelMass";
+
     private static final int STATUS_INTERVAL = 1;
     private static final int CONTROL_TIMEOUT_TICKS = 20;
     private static final double TICK_SECONDS = 1.0D / 20.0D;
     private static final double BASE_MASS_KG = 210.0D;
     private static final double FUEL_CAPACITY_KG = 45.0D;
-    private static final double FUEL_CONSUMPTION_PER_SEC = 0.32D;
+    private static final double FUEL_CONSUMPTION_PER_SEC = 0.9286D;
     private static final double MAX_THRUST_FORCE = 930.0D;
     private static final double THRUST_CURVE_EXPONENT = 2.0D;
     private static final double RHO_SEA_LEVEL = 1.225D;
     private static final double ATMOSPHERE_SCALE_HEIGHT = 8500.0D;
-    private static final double WING_AREA = 3.3D;
-    private static final double ASPECT_RATIO = 4.6D;
+    private static final double WING_AREA = 4.0D;
     private static final double CL_ALPHA = 2.5D;
     private static final double CL_MAX = 1.5D;
-    private static final double CL_ZERO = 0.088211D;
+    private static final double CL_ZERO = 0.25D;
     private static final double CD_MIN = 0.052D;
     private static final double DRAG_FACTOR = 0.055D;
     private static final double CY_BETA = -0.85D;
-    private static final double CONTROL_EAS_MIN = 12.0D;
-    private static final double CONTROL_EAS_MAX = 45.0D;
-    private static final double GRAVITY = 4.0D;
-    private static final double MAX_MANUAL_YAW_RATE = 150.0D;
-    private static final double MAX_MANUAL_PITCH_RATE = 75.0D;
-    private static final double YAW_ACCEL_LIMIT = 720.0D;
-    private static final double PITCH_ACCEL_LIMIT = 540.0D;
-    private static final double HEADING_HOLD_GAIN = 0.0D;
+    private static final double GRAVITY = 9.81D;
+    private static final double MAX_ROLL_RATE = 60.0D;
+    private static final double MAX_PITCH_RATE = 45.0D;
+    private static final double ROLL_ACCEL = 120.0D;
+    private static final double PITCH_ACCEL = 90.0D;
     private static final double GROUND_FRICTION = 0.62D;
     private static final double MAX_AIRSPEED = 72.222D;
     private static final double INITIAL_LAUNCH_SPEED = 55.5D;
     private static final double ENGINE_IDLE_THRUST = 0.0D;
     private static final double ENGINE_SPOOL_RATE = 0.05D;
-    private static final double MAX_ELEVATOR_AOA = Math.toRadians(11.0D);
-    private static final double SLIP_DAMPING = 2.0D;
-    private static final double PITCH_DAMPING = 0.12D;
-    private static final double DEFAULT_TRIM_PITCH = 6.0D;
     private static final double STALL_ANGLE = Math.toRadians(17.0D);
-    private static final double MAX_VISUAL_ROLL = 55.0D;
-    private static final double VISUAL_ROLL_ACCEL = 540.0D;
-    private static final double VISUAL_PITCH_ACCEL = 360.0D;
     private static final double PROJECTILE_DAMAGE_DECEL_PER_SEC = 24.0D;
     private static final double DAMAGE_SMOKE_PARTICLES_PER_TICK = 7.0D / 20.0D;
     private static final double DAMAGE_SMOKE_SPREAD = 0.7D;
-    private static final int CLIENT_INTERPOLATION_FACTOR = 100;
-    private static final int CONTROL_HISTORY_TICKS = 100;
-    private static final String TAG_LINEAR_VELOCITY = "LinearVelocity";
-    private static final String TAG_FUEL = "FuelMass";
     private static final TicketType<Integer> SHAHED_TICKET = TicketType.create("fullfud_shahed", Integer::compareTo, 4);
     private static final EntityDimensions SHAHEED_DIMENSIONS = EntityDimensions.scalable(3.0F, 1.0F);
     private static final Logger LOG = LogManager.getLogger("ShahedDrone");
@@ -145,13 +136,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private float controlForward;
     private float controlStrafe;
     private float controlVertical;
-    private float resolvedVerticalInput;
     private Vec3 linearVelocity = Vec3.ZERO;
     private double crippledHorizontalTargetSpeed = -1.0D;
     private double damageSmokeAccumulator;
     private int projectileHitCount;
+    private int damageCooldown = 0; 
     private int controlTimeout;
-    private double yawRate;
+    private double rollRate;
     private double pitchRate;
     private UUID ownerUUID;
     private int ownerViewDistance = 8;
@@ -171,23 +162,14 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private FlightTelemetry telemetry = FlightTelemetry.ZERO;
     private double bodyYaw;
     private double bodyPitch;
+    private double bodyRoll;
     private double bodyPitchO;
+    private double bodyRollO;
     private double engineOutput;
     private boolean remoteInitialized;
-    private double visualRoll;
-    private double prevVisualRoll;
-    private double visualPitch;
-    private double prevVisualPitch;
-    private final float[] strafeHistory = new float[CONTROL_HISTORY_TICKS];
-    private int strafeHistoryIndex;
-    private int strafeHistorySize;
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
     private static final RawAnimation IDLE_ANIMATION = RawAnimation.begin().thenLoop("animation.model.idle");
     private static final RawAnimation RUN_ANIMATION = RawAnimation.begin().thenLoop("animation.model.running");
-    private float deltaYawSmooth;
-    private float deltaPitchSmooth;
-    private int holdTickYaw;
-    private int holdTickPitch;
     private boolean cameraPinned;
     private static final double LAUNCHER_VERTICAL_OFFSET = 0.25D;
     private static final double LAUNCHER_FORWARD_OFFSET = 2.0D;
@@ -210,20 +192,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.setNoGravity(true);
         this.launchBaselineY = this.getY();
         this.bodyYaw = this.getYRot();
-        this.bodyPitch = DEFAULT_TRIM_PITCH;
-        this.bodyPitchO = DEFAULT_TRIM_PITCH;
+        this.bodyPitch = 0.0D;
+        this.bodyPitchO = 0.0D;
+        this.bodyRoll = 0.0D;
+        this.bodyRollO = 0.0D;
         this.setXRot((float) bodyPitch);
         this.engineOutput = 0.0D;
-        this.visualRoll = 0.0D;
-        this.prevVisualRoll = 0.0D;
-        this.visualPitch = bodyPitch;
-        this.prevVisualPitch = bodyPitch;
-        resetStrafeHistory();
         this.remoteInitialized = false;
-        this.deltaYawSmooth = 0.0F;
-        this.deltaPitchSmooth = 0.0F;
-        this.holdTickYaw = 0;
-        this.holdTickPitch = 0;
         updateBoundingBox();
         this.refreshDimensions();
     }
@@ -241,11 +216,16 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.entityData.define(DATA_THRUST, 0.25F);
         this.entityData.define(DATA_COLOR, ShahedColor.WHITE.getId());
         this.entityData.define(DATA_ON_LAUNCHER, false);
+        this.entityData.define(DATA_ROLL, 0.0F);
     }
 
     @Override
     public void tick() {
         super.tick();
+
+        if (this.damageCooldown > 0) {
+            this.damageCooldown--;
+        }
 
         if (!level().isClientSide()) {
             updateJammerState();
@@ -259,14 +239,24 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
 
         bodyPitchO = bodyPitch;
+        bodyRollO = bodyRoll;
+
+        if (level().isClientSide()) {
+            this.bodyRoll = this.entityData.get(DATA_ROLL);
+        }
 
         if (!level().isClientSide() || isControlledByLocalInstance()) {
             if (!level().isClientSide() && controllingPlayer == null) {
                 bodyPitch = bodyPitch * 0.9f;
+                bodyRoll = bodyRoll * 0.9f;
             }
             this.setXRot((float) bodyPitch);
             updateControlTimeout();
             updateFlight();
+            
+            if (!level().isClientSide()) {
+                this.entityData.set(DATA_ROLL, (float) bodyRoll);
+            }
         }
 
         if (level().isClientSide() && !isControlledByLocalInstance()) {
@@ -282,6 +272,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 this.setPos(d0, d1, d2);
                 this.setRot(this.getYRot(), this.getXRot());
             }
+            this.bodyPitch = this.getXRot();
+            this.bodyYaw = this.getYRot();
         }
 
         if (level().isClientSide() && isControlledByLocalInstance()) {
@@ -320,16 +312,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.lerpSteps = posRotationIncrements;
     }
 
-    public double getBodyPitch() {
-        return bodyPitch;
+    public float getVisualRoll(float partialTick) {
+        return (float) Mth.lerp(partialTick, bodyRollO, bodyRoll);
     }
 
-    public void setBodyPitch(double pitch) {
-        bodyPitch = pitch;
-    }
-
-    public double getBodyPitch(float tickDelta) {
-        return Mth.lerp(0.6f * tickDelta, bodyPitchO, bodyPitch);
+    public float getVisualPitch(float partialTick) {
+        return (float) Mth.lerp(partialTick, bodyPitchO, bodyPitch);
     }
 
     private void updateControlTimeout() {
@@ -339,13 +327,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             controlForward = 0.0F;
             controlStrafe = 0.0F;
             controlVertical = 0.0F;
-            resolvedVerticalInput = 0.0F;
         }
     }
 
     private void updateFlight() {
         final double dt = TICK_SECONDS;
         float throttle = Mth.clamp(getThrust(), 0.0F, 1.0F);
+        
         if (fuelMass > 0.0D && throttle > 0.0F) {
             final double burn = throttle * FUEL_CONSUMPTION_PER_SEC * dt;
             fuelMass = Math.max(0.0D, fuelMass - burn);
@@ -357,89 +345,55 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 setThrust(0.0F);
             }
         }
+        
         final double totalMass = BASE_MASS_KG + fuelMass;
+        engineOutput += (throttle - engineOutput) * ENGINE_SPOOL_RATE;
+        final double thrustForce = fuelMass <= 0.0D ? 0.0D : computeEffectiveThrust(engineOutput);
 
-        final OrientationBasis basis = orientationBasis();
-        final Vec3 forward = basis.forward();
-        final Vec3 up = basis.up();
-        final Vec3 right = basis.right();
+        integrateAttitude(dt);
+
+        final double yawRad = Math.toRadians(bodyYaw);
+        final double pitchRad = Math.toRadians(bodyPitch);
+        final double rollRad = Math.toRadians(bodyRoll);
+
+        final Vec3 forward = new Vec3(
+            -Math.sin(yawRad) * Math.cos(pitchRad),
+            -Math.sin(pitchRad),
+            Math.cos(yawRad) * Math.cos(pitchRad)
+        ).normalize();
+
+        final Vec3 upBase = new Vec3(0, 1, 0);
+        final Vec3 right = forward.cross(upBase).normalize();
+        
+        Vec3 localUp = right.cross(forward).normalize();
+        
+        final double sr = Math.sin(rollRad);
+        final double cr = Math.cos(rollRad);
+        localUp = localUp.scale(cr).add(right.scale(sr)).normalize();
 
         final double speed = linearVelocity.length();
-        final double pitchRad = Math.toRadians(bodyPitch);
-        final double horizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
-        final double flightYaw = speed > 1.0E-3D ? Math.atan2(linearVelocity.x, linearVelocity.z) : Math.toRadians(bodyYaw);
-        final double flightPitch = speed > 1.0E-3D ? Math.atan2(linearVelocity.y, Math.max(1.0E-3D, horizontalSpeed)) : pitchRad;
         final double altitude = this.getY();
         final double airDensity = sampleAirDensity(altitude);
         final double q = 0.5D * airDensity * speed * speed;
 
-        engineOutput += (throttle - engineOutput) * ENGINE_SPOOL_RATE;
-        final double thrustMagnitude = fuelMass <= 0.0D ? 0.0D : computeEffectiveThrust(engineOutput);
+        final double velocityPitch = speed > 0.01 ? Math.atan2(linearVelocity.y, Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z)) : -pitchRad;
+        
+        final double aoa = -pitchRad - velocityPitch;
+        
+        final double cl = applyStall(resolveLiftCoefficient(aoa), aoa);
+        final double liftMagnitude = cl * q * WING_AREA;
+        final Vec3 liftVector = localUp.scale(liftMagnitude);
 
-        final double forwardSpeedBody = linearVelocity.dot(forward);
-        final double verticalSpeedBody = linearVelocity.dot(up);
-        final double lateralSpeedBody = linearVelocity.dot(right);
-        final double baseAoa = Math.atan2(-verticalSpeedBody, Math.max(1.0D, forwardSpeedBody));
-        final double orientationBias = Math.toRadians(-4.0D + 4.0D * throttle) + Math.toRadians(-bodyPitch) * 0.18D;
-        this.resolvedVerticalInput = resolveVerticalInput(baseAoa, throttle);
-
-        final double authority = 0.2D + 0.8D * throttle;
-        final double trimmedInput = Mth.clamp(resolvedVerticalInput * authority, -1.0D, 1.0D);
-
-        double glideTrim = 0.0D;
-        final double idleThreshold = 0.25D;
-        if (Math.abs(controlVertical) < 0.05F && throttle < idleThreshold) {
-            final double idleFactor = (idleThreshold - throttle) / idleThreshold;
-            final double climbRatio = Mth.clamp(linearVelocity.y / 10.0D, 0.0D, 1.0D);
-            glideTrim = idleFactor * (0.2D + 0.8D * climbRatio);
-        }
-
-        final double effectiveAoa = baseAoa + orientationBias + trimmedInput * MAX_ELEVATOR_AOA - glideTrim * MAX_ELEVATOR_AOA;
-        final double cl = applyStall(resolveLiftCoefficient(effectiveAoa), effectiveAoa);
-        final double lift = cl * q * WING_AREA;
         final double cd = CD_MIN + DRAG_FACTOR * cl * cl;
-        final Vec3 liftForce = up.scale(lift);
-        final Vec3 dragForce = speed > 1.0E-4D ? linearVelocity.normalize().scale(-cd * q * WING_AREA) : Vec3.ZERO;
+        final Vec3 dragVector = linearVelocity.normalize().scale(-cd * q * WING_AREA);
+        
+        final Vec3 thrustVector = forward.scale(thrustForce);
+        final Vec3 gravityVector = new Vec3(0, -totalMass * GRAVITY, 0);
 
-        final double slip = speed > 1.0E-3D ? wrapRadians(Math.atan2(lateralSpeedBody, Math.max(1.0D, forwardSpeedBody))) : 0.0D;
-        final Vec3 lateralForce = right.scale(CY_BETA * slip * q * WING_AREA);
-        final Vec3 thrustForce = forward.scale(thrustMagnitude);
-        final Vec3 weightForce = new Vec3(0.0D, -totalMass * GRAVITY, 0.0D);
-
-        Vec3 netForce = thrustForce.add(liftForce).add(dragForce).add(lateralForce).add(weightForce);
-        if (throttle < 0.15F) {
-            final double penalty = 0.8D + (0.2D - throttle) * 3.0D;
-            final Vec3 dragFalloff = linearVelocity.lengthSqr() > 1.0E-4D ? linearVelocity.normalize().scale(-penalty) : Vec3.ZERO;
-            netForce = netForce.add(dragFalloff);
-        }
+        Vec3 netForce = thrustVector.add(liftVector).add(dragVector).add(gravityVector);
+        
         final Vec3 acceleration = netForce.scale(1.0D / totalMass);
         linearVelocity = linearVelocity.add(acceleration.scale(dt));
-
-        if (controlStrafe > 0.05F) {
-            holdTickYaw++;
-            deltaYawSmooth -= 0.3F * Math.min(holdTickYaw, 5);
-        } else if (controlStrafe < -0.05F) {
-            holdTickYaw++;
-            deltaYawSmooth += 0.3F * Math.min(holdTickYaw, 5);
-        } else {
-            holdTickYaw = 0;
-        }
-
-        if (controlForward > 0.05F) {
-            holdTickPitch++;
-            deltaPitchSmooth -= 0.3F * Math.min(holdTickPitch, 5);
-        } else if (controlForward < -0.05F) {
-            holdTickPitch++;
-            deltaPitchSmooth += 0.3F * Math.min(holdTickPitch, 5);
-        } else {
-            holdTickPitch = 0;
-        }
-
-        deltaYawSmooth *= 0.7F;
-        deltaPitchSmooth *= 0.7F;
-
-        linearVelocity = linearVelocity.add(right.scale(0.017D * deltaYawSmooth));
-        linearVelocity = linearVelocity.add(forward.scale(-0.017D * deltaPitchSmooth));
 
         final double speedCapSq = MAX_AIRSPEED * MAX_AIRSPEED;
         if (linearVelocity.lengthSqr() > speedCapSq) {
@@ -455,32 +409,43 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         updateBoundingBox();
         resolveCollisionVelocity();
 
-        final double updatedHorizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
-        final double updatedSpeed = linearVelocity.length();
-        final double updatedFlightYaw = updatedSpeed > 1.0E-3D ? Math.atan2(linearVelocity.x, linearVelocity.z) : Math.toRadians(bodyYaw);
-        final double updatedFlightPitch = updatedSpeed > 1.0E-3D ? Math.atan2(linearVelocity.y, Math.max(1.0E-3D, updatedHorizontalSpeed)) : Math.toRadians(bodyPitch);
-        final double updatedAoa = Mth.clamp(Math.toRadians(bodyPitch) - updatedFlightPitch, Math.toRadians(-18.0D), Math.toRadians(22.0D));
-        final double updatedSlip = updatedSpeed > 1.0E-3D ? wrapRadians(Math.toRadians(bodyYaw) - updatedFlightYaw) : 0.0D;
-
-        integrateAttitude(baseAoa, updatedSlip, updatedSpeed, dt);
-
-        final double flightPitchDeg = Math.toDegrees(updatedFlightPitch);
-        final double visualPitchTarget = Mth.clamp(flightPitchDeg, -85.0D, 85.0D);
-        recordStrafe(controlStrafe);
-        final double strafeBias = computeStrafeBias();
-        updateVisualPitch(visualPitchTarget, dt);
-        updateVisualRoll(strafeBias, dt);
+        if (linearVelocity.lengthSqr() > 1.0) {
+            final double horizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
+            final double moveYaw = Math.toDegrees(Math.atan2(-linearVelocity.x, linearVelocity.z));
+            
+            double yawDiff = Mth.wrapDegrees(moveYaw - bodyYaw);
+            bodyYaw += yawDiff * 0.1D; 
+        }
 
         telemetry = new FlightTelemetry(
-            (float) updatedSpeed,
-            (float) updatedHorizontalSpeed,
+            (float) speed,
+            (float) Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z),
             (float) linearVelocity.y,
-            (float) Math.toDegrees(baseAoa),
-            (float) Math.toDegrees(updatedSlip),
+            (float) Math.toDegrees(aoa),
+            0.0F,
             throttle,
             (float) fuelMass,
             (float) airDensity
         );
+    }
+
+    private void integrateAttitude(final double dt) {
+        double targetRollRate = controlStrafe * MAX_ROLL_RATE;
+        rollRate = approach(rollRate, Math.toRadians(targetRollRate), Math.toRadians(ROLL_ACCEL) * dt);
+        
+        double targetPitchRate = controlForward * MAX_PITCH_RATE; 
+        pitchRate = approach(pitchRate, Math.toRadians(targetPitchRate), Math.toRadians(PITCH_ACCEL) * dt);
+
+        bodyRoll += Math.toDegrees(rollRate * dt);
+        bodyPitch += Math.toDegrees(pitchRate * dt);
+        
+        bodyPitch = Mth.clamp(bodyPitch, -85.0D, 85.0D);
+        bodyRoll = Mth.wrapDegrees(bodyRoll);
+        bodyYaw = Mth.wrapDegrees(bodyYaw);
+
+        this.setXRot((float) bodyPitch);
+        this.setYRot((float) bodyYaw);
+        this.setYHeadRot((float) bodyYaw);
     }
 
     private void applyProjectileDamageEffects(final double dt) {
@@ -532,56 +497,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
     }
 
-    private float resolveVerticalInput(final double baseAoa, final float throttle) {
-        float input = controlVertical;
-        if (Math.abs(input) > 0.05F) {
-            return input;
-        }
-
-        final float idleThreshold = 0.35F;
-        if (throttle >= idleThreshold) {
-            return 0.0F;
-        }
-        final double idleFactor = (idleThreshold - throttle) / idleThreshold;
-        final double aoaExcess = Math.max(0.0D, baseAoa - Math.toRadians(2.5D));
-        if (aoaExcess <= 1.0E-4D) {
-            return 0.0F;
-        }
-        final double trim = Math.min(1.0D, aoaExcess / Math.toRadians(24.0D)) * idleFactor;
-        return (float) -Mth.clamp(trim, 0.0D, 1.0D);
-    }
-
-    private OrientationBasis orientationBasis() {
-        Vec3 forward = Vec3.directionFromRotation((float) bodyPitch, (float) bodyYaw);
-        if (forward.lengthSqr() < 1.0E-5D) {
-            forward = new Vec3(0.0D, 0.0D, 1.0D);
-        }
-        forward = forward.normalize();
-        Vec3 up = new Vec3(0.0D, 1.0D, 0.0D);
-        Vec3 right = forward.cross(up);
-        if (right.lengthSqr() < 1.0E-5D) {
-            right = new Vec3(1.0D, 0.0D, 0.0D);
-        } else {
-            right = right.normalize();
-        }
-        up = right.cross(forward).normalize();
-        return new OrientationBasis(forward, up, right);
-    }
-
     private static double sampleAirDensity(final double altitude) {
         return RHO_SEA_LEVEL * Math.exp(-Math.max(0.0D, altitude) / ATMOSPHERE_SCALE_HEIGHT);
     }
 
     private static double resolveLiftCoefficient(final double aoaRad) {
         return Mth.clamp(CL_ZERO + CL_ALPHA * aoaRad, -CL_MAX, CL_MAX);
-    }
-
-    private static double resolveDragCoefficient(final double cl) {
-        return CD_MIN + DRAG_FACTOR * cl * cl;
-    }
-
-    private static double wrapRadians(final double radians) {
-        return Math.toRadians(Mth.wrapDegrees(Math.toDegrees(radians)));
     }
 
     private static double applyStall(final double cl, final double aoaRad) {
@@ -597,12 +518,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private double computeEffectiveThrust(final double engineLevel) {
         final double normalizedLevel = Mth.clamp(engineLevel, 0.0D, 1.0D);
         final double throttleResponse = Math.pow(normalizedLevel, THRUST_CURVE_EXPONENT);
-        double thrust = ENGINE_IDLE_THRUST + throttleResponse * (MAX_THRUST_FORCE - ENGINE_IDLE_THRUST);
-        if (bodyPitch < -4.0D) {
-            final double climbRatio = Mth.clamp((-bodyPitch - 4.0D) / 22.0D, 0.0D, 1.0D);
-            thrust *= Mth.lerp(1.0D, 0.55D, climbRatio);
-        }
-        return thrust;
+        return ENGINE_IDLE_THRUST + throttleResponse * (MAX_THRUST_FORCE - ENGINE_IDLE_THRUST);
     }
 
     private Vec3 forwardGroundVector() {
@@ -610,33 +526,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final double x = -Mth.sin(yawRad);
         final double z = Mth.cos(yawRad);
         return new Vec3(x, 0.0D, z).normalize();
-    }
-
-
-    private void integrateAttitude(final double aoaRad, final double slipRad, final double airspeed, final double dt) {
-        final double controlFactor = Mth.clamp((airspeed - CONTROL_EAS_MIN) / (CONTROL_EAS_MAX - CONTROL_EAS_MIN), 0.1D, 1.0D);
-        final double yawAuthority = Math.max(0.2D, controlFactor);
-        final double manualInput = controlStrafe * 0.5D;
-        final double manualComponent = Math.toRadians(manualInput * MAX_MANUAL_YAW_RATE * yawAuthority);
-        final double desiredYawRate = manualComponent;
-        final double yawRateStep = Math.toRadians(YAW_ACCEL_LIMIT) * dt;
-        yawRate = approach(yawRate, desiredYawRate, yawRateStep);
-        yawRate = Mth.clamp(yawRate, -Math.toRadians(MAX_MANUAL_YAW_RATE), Math.toRadians(MAX_MANUAL_YAW_RATE));
-        bodyYaw = Mth.wrapDegrees(bodyYaw + Math.toDegrees(yawRate * dt));
-        this.setYRot((float) bodyYaw);
-        this.yRotO = this.getYRot();
-        this.setYHeadRot(this.getYRot());
-
-        final double pitchInput = Mth.clamp(-resolvedVerticalInput, -1.0D, 1.0D);
-        final double commandedPitchRate = Math.toRadians(pitchInput * MAX_MANUAL_PITCH_RATE * controlFactor);
-        final double desiredPitchRate = commandedPitchRate - pitchRate * PITCH_DAMPING;
-        final double pitchRateStep = Math.toRadians(PITCH_ACCEL_LIMIT) * dt;
-        pitchRate = approach(pitchRate, desiredPitchRate, pitchRateStep);
-        pitchRate = Mth.clamp(pitchRate, -Math.toRadians(MAX_MANUAL_PITCH_RATE), Math.toRadians(MAX_MANUAL_PITCH_RATE));
-        bodyPitch = Mth.clamp(bodyPitch + Math.toDegrees(pitchRate * dt), -85.0D, 85.0D);
-        bodyPitch = Mth.clamp(bodyPitch - deltaPitchSmooth, -30.0D, 30.0D);
-        this.setXRot((float) bodyPitch);
-        this.xRotO = this.getXRot();
     }
 
     private void resolveCollisionVelocity() {
@@ -662,15 +551,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.setPos(getX(), desiredY, getZ());
         this.setDeltaMovement(Vec3.ZERO);
         this.linearVelocity = Vec3.ZERO;
-        this.bodyPitch = DEFAULT_TRIM_PITCH;
-        this.bodyPitchO = DEFAULT_TRIM_PITCH;
+        this.bodyPitch = 0.0D;
+        this.bodyPitchO = 0.0D;
+        this.bodyRoll = 0.0D;
+        this.bodyRollO = 0.0D;
         this.setXRot((float) bodyPitch);
         this.launchBaselineY = desiredY;
-        this.visualPitch = bodyPitch;
-        this.prevVisualPitch = bodyPitch;
-        this.visualRoll = 0.0D;
-        this.prevVisualRoll = 0.0D;
-        resetStrafeHistory();
         updateBoundingBox();
     }
 
@@ -695,11 +581,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.fuelMass = tag.contains(TAG_FUEL) ? tag.getDouble(TAG_FUEL) : FUEL_CAPACITY_KG;
         this.bodyYaw = tag.contains(TAG_BODY_YAW) ? tag.getDouble(TAG_BODY_YAW) : this.getYRot();
         this.bodyPitch = tag.contains(TAG_BODY_PITCH) ? tag.getDouble(TAG_BODY_PITCH) : this.getXRot();
+        this.bodyRoll = tag.contains(TAG_BODY_ROLL) ? tag.getDouble(TAG_BODY_ROLL) : 0.0D;
         this.bodyPitchO = this.bodyPitch;
-        this.visualPitch = bodyPitch;
-        this.prevVisualPitch = bodyPitch;
-        this.visualRoll = 0.0D;
-        this.prevVisualRoll = 0.0D;
+        this.bodyRollO = this.bodyRoll;
         this.remoteInitialized = tag.getBoolean(TAG_REMOTE_INIT);
         if (tag.contains(TAG_COLOR)) {
             setColor(ShahedColor.byId(tag.getInt(TAG_COLOR)));
@@ -739,6 +623,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         tag.putDouble(TAG_FUEL, fuelMass);
         tag.putDouble(TAG_BODY_YAW, bodyYaw);
         tag.putDouble(TAG_BODY_PITCH, bodyPitch);
+        tag.putDouble(TAG_BODY_ROLL, bodyRoll);
         tag.putBoolean(TAG_REMOTE_INIT, remoteInitialized);
         tag.putInt(TAG_COLOR, getColor().getId());
         if (isOnLauncher() && mountedLauncherUuid != null) {
@@ -815,7 +700,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private boolean canReceiveControl() {
-        return !jammerSuppressControls;
+        return !jammerSuppressControls && this.projectileHitCount == 0;
     }
 
     private void updateJammerState() {
@@ -919,56 +804,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         return getThrust() > 0.2F || linearVelocity.lengthSqr() > 4.0D;
     }
 
-    public float getVisualRoll(final float partialTick) {
-        return (float) Mth.lerp(partialTick, prevVisualRoll, visualRoll);
-    }
-
-    private void updateVisualRoll(final double strafeBias, final double dt) {
-        final double inputComponent = controlStrafe * 25.0D;
-        final double biasComponent = strafeBias * MAX_VISUAL_ROLL;
-        double targetRollDeg = Mth.clamp(biasComponent + inputComponent, -MAX_VISUAL_ROLL, MAX_VISUAL_ROLL);
-        final double step = VISUAL_ROLL_ACCEL * dt;
-        prevVisualRoll = visualRoll;
-        visualRoll = approach(visualRoll, targetRollDeg, step);
-    }
-
-    public float getVisualPitch(final float partialTick) {
-        return (float) Mth.lerp(partialTick, prevVisualPitch, visualPitch);
-    }
-
-    private void updateVisualPitch(final double targetPitch, final double dt) {
-        final double step = VISUAL_PITCH_ACCEL * dt;
-        prevVisualPitch = visualPitch;
-        visualPitch = approach(visualPitch, targetPitch, step);
-    }
-
-    private double computeStrafeBias() {
-        if (strafeHistorySize == 0) {
-            return controlStrafe;
-        }
-        double sum = 0.0D;
-        for (int i = 0; i < strafeHistorySize; i++) {
-            sum += strafeHistory[i];
-        }
-        return Mth.clamp(sum / strafeHistorySize, -1.0D, 1.0D);
-    }
-
-    private void recordStrafe(final float strafe) {
-        strafeHistory[strafeHistoryIndex] = strafe;
-        strafeHistoryIndex = (strafeHistoryIndex + 1) % CONTROL_HISTORY_TICKS;
-        if (strafeHistorySize < CONTROL_HISTORY_TICKS) {
-            strafeHistorySize++;
-        }
-    }
-
-    private void resetStrafeHistory() {
-        for (int i = 0; i < CONTROL_HISTORY_TICKS; i++) {
-            strafeHistory[i] = 0.0F;
-        }
-        strafeHistoryIndex = 0;
-        strafeHistorySize = 0;
-    }
-
     private void updateBoundingBox() {
         final float width = 3.0F;
         final float height = 1.0F;
@@ -1036,9 +871,16 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     @Override
     public boolean hurt(final DamageSource source, final float amount) {
-        if (source.getDirectEntity() instanceof Projectile) {
+        if (this.damageCooldown > 0) {
+            return false;
+        }
+
+        if (source.getDirectEntity() instanceof Projectile projectile) {
             if (!level().isClientSide()) {
                 handleProjectileImpact();
+                this.damageCooldown = 20; 
+                
+                projectile.discard();
             }
             return true;
         }
@@ -1117,10 +959,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         setYBodyRot(yaw);
         setYHeadRot(yaw);
         this.bodyYaw = yaw;
-        this.bodyPitch = LAUNCHER_LAUNCH_PITCH;
-        this.visualPitch = LAUNCHER_LAUNCH_PITCH;
-        this.prevVisualPitch = LAUNCHER_LAUNCH_PITCH;
-        setXRot(LAUNCHER_LAUNCH_PITCH);
+        this.bodyPitch = -10.0D;
+        this.bodyRoll = 0.0D;
+        this.bodyRollO = 0.0D;
+        setXRot((float) this.bodyPitch);
     }
 
     private void handleLauncherAttachment() {
@@ -1165,8 +1007,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         setYHeadRot(yaw);
         this.bodyYaw = yaw;
         this.bodyPitch = 0.0D;
-        this.visualPitch = 0.0D;
-        this.prevVisualPitch = 0.0D;
+        this.bodyRoll = 0.0D;
+        this.bodyRollO = 0.0D;
         setXRot(0.0F);
     }
 
@@ -1397,26 +1239,18 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.controlForward = 0.0F;
         this.controlStrafe = 0.0F;
         this.controlVertical = 0.0F;
-        this.resolvedVerticalInput = 0.0F;
-        this.yawRate = 0.0D;
+        this.rollRate = 0.0D;
         this.pitchRate = 0.0D;
         this.fuelMass = FUEL_CAPACITY_KG;
         this.telemetry = FlightTelemetry.ZERO;
         this.bodyYaw = this.getYRot();
-        this.bodyPitch = DEFAULT_TRIM_PITCH;
-        this.bodyPitchO = DEFAULT_TRIM_PITCH;
+        this.bodyPitch = 0.0D;
+        this.bodyPitchO = 0.0D;
+        this.bodyRoll = 0.0D;
+        this.bodyRollO = 0.0D;
         this.setXRot((float) bodyPitch);
         this.engineOutput = 0.0D;
-        this.visualRoll = 0.0D;
-        this.prevVisualRoll = 0.0D;
-        this.visualPitch = bodyPitch;
-        this.prevVisualPitch = bodyPitch;
         this.remoteInitialized = false;
-        this.deltaYawSmooth = 0.0F;
-        this.deltaPitchSmooth = 0.0F;
-        this.holdTickYaw = 0;
-        this.holdTickPitch = 0;
-        resetStrafeHistory();
     }
 
     public boolean beginRemoteControl(final ServerPlayer player) {
@@ -1442,6 +1276,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             setThrust(1.0F);
             this.engineOutput = 1.0D;
             this.remoteInitialized = true;
+            this.bodyPitch = -10.0D; 
+            this.setXRot((float) bodyPitch);
         }
         controllingPlayer = player.getUUID();
         bindPlayerToDrone(player);

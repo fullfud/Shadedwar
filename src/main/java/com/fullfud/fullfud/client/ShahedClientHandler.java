@@ -8,6 +8,7 @@ import com.fullfud.fullfud.client.sound.RebStaticNoiseSound;
 import com.fullfud.fullfud.client.sound.ShahedEngineLoopSound;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
+import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
@@ -24,8 +25,11 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
@@ -35,7 +39,9 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.minecraftforge.client.event.ViewportEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -79,6 +85,8 @@ public final class ShahedClientHandler {
             MenuScreens.register(FullfudRegistries.SHAHED_MONITOR_MENU.get(), ShahedMonitorScreen::new);
             MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onClientTick);
             MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderLevelStage);
+            MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderGui);
+            MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onComputeCameraAngles);
         });
     }
 
@@ -126,6 +134,13 @@ public final class ShahedClientHandler {
             return;
         }
         FullfudNetwork.getChannel().sendToServer(new ShahedControlPacket(droneId, forward, strafe, vertical, thrustDelta));
+    }
+
+    private static void onComputeCameraAngles(final ViewportEvent.ComputeCameraAngles event) {
+        if (event.getCamera().getEntity() instanceof ShahedDroneEntity drone) {
+            event.setRoll(drone.getVisualRoll((float) event.getPartialTick()));
+            event.setPitch(drone.getVisualPitch((float) event.getPartialTick()));
+        }
     }
 
     private static void onClientTick(final TickEvent.ClientTickEvent event) {
@@ -198,9 +213,64 @@ public final class ShahedClientHandler {
         poseStack.popPose();
     }
 
+    private static void onRenderGui(final RenderGuiEvent.Post event) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null || minecraft.level == null) {
+            return;
+        }
+        if (minecraft.screen != null) {
+            return;
+        }
+        if (!(minecraft.hitResult instanceof EntityHitResult entityHit)) {
+            return;
+        }
+        if (!(entityHit.getEntity() instanceof RebEmitterEntity emitter) || emitter.isRemoved()) {
+            return;
+        }
+        final Component statusText = resolveEmitterStatus(emitter);
+        final Component chargeText = resolveEmitterCharge(emitter);
+        final GuiGraphics graphics = event.getGuiGraphics();
+        final Font font = minecraft.font;
+        final int padding = 6;
+        final int spacing = 2;
+        final int width = Math.max(font.width(statusText), font.width(chargeText)) + padding * 2;
+        final int height = font.lineHeight * 2 + spacing + padding * 2;
+        final int screenWidth = minecraft.getWindow().getGuiScaledWidth();
+        final int screenHeight = minecraft.getWindow().getGuiScaledHeight();
+        final int x = (screenWidth - width) / 2;
+        final int y = screenHeight / 2 + 20;
+        graphics.fill(x, y, x + width, y + height, 0x88000000);
+        graphics.drawString(font, statusText, x + padding, y + padding, 0xFFFFFFFF, false);
+        graphics.drawString(font, chargeText, x + padding, y + padding + font.lineHeight + spacing, 0xFFB0B0B0, false);
+    }
+
     private static boolean isHoldingBattery(final Player player) {
         return player.getMainHandItem().is(FullfudRegistries.REB_BATTERY_ITEM.get()) ||
             player.getOffhandItem().is(FullfudRegistries.REB_BATTERY_ITEM.get());
+    }
+
+    private static Component resolveEmitterStatus(final RebEmitterEntity emitter) {
+        if (!emitter.hasBattery()) {
+            return Component.translatable("status.fullfud.reb.no_battery");
+        }
+        if (!emitter.hasFinishedStartup()) {
+            return Component.translatable("status.fullfud.reb.starting");
+        }
+        final int chargeTicks = emitter.getChargeTicks();
+        if (chargeTicks <= 0) {
+            return Component.translatable("status.fullfud.reb.low_power");
+        }
+        final float percent = chargeTicks / (float) RebBatteryItem.MAX_CHARGE_TICKS;
+        if (percent <= 0.05F) {
+            return Component.translatable("status.fullfud.reb.low_power");
+        }
+        return Component.translatable("status.fullfud.reb.working");
+    }
+
+    private static Component resolveEmitterCharge(final RebEmitterEntity emitter) {
+        final int chargeTicks = emitter.hasBattery() ? emitter.getChargeTicks() : 0;
+        final int percent = Mth.clamp(Math.round((chargeTicks / (float) RebBatteryItem.MAX_CHARGE_TICKS) * 100.0F), 0, 100);
+        return Component.translatable("status.fullfud.reb.charge", percent);
     }
 
     private static final class EngineAudioController {
