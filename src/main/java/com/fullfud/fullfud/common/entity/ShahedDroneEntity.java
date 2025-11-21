@@ -140,7 +140,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private double crippledHorizontalTargetSpeed = -1.0D;
     private double damageSmokeAccumulator;
     private int projectileHitCount;
-    private int damageCooldown = 0; 
     private int controlTimeout;
     private double rollRate;
     private double pitchRate;
@@ -222,10 +221,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     @Override
     public void tick() {
         super.tick();
-
-        if (this.damageCooldown > 0) {
-            this.damageCooldown--;
-        }
 
         if (!level().isClientSide()) {
             updateJammerState();
@@ -333,9 +328,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private void updateFlight() {
         final double dt = TICK_SECONDS;
         float throttle = Mth.clamp(getThrust(), 0.0F, 1.0F);
-        
+
         if (fuelMass > 0.0D && throttle > 0.0F) {
-            final double burn = throttle * FUEL_CONSUMPTION_PER_SEC * dt;
+            final double burn = Math.pow(throttle, 1.5D) * FUEL_CONSUMPTION_PER_SEC * dt;
             fuelMass = Math.max(0.0D, fuelMass - burn);
         }
         if (fuelMass <= 0.0D) {
@@ -345,7 +340,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 setThrust(0.0F);
             }
         }
-        
+
         final double totalMass = BASE_MASS_KG + fuelMass;
         engineOutput += (throttle - engineOutput) * ENGINE_SPOOL_RATE;
         final double thrustForce = fuelMass <= 0.0D ? 0.0D : computeEffectiveThrust(engineOutput);
@@ -700,7 +695,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private boolean canReceiveControl() {
-        return !jammerSuppressControls && this.projectileHitCount == 0;
+        return !jammerSuppressControls;
     }
 
     private void updateJammerState() {
@@ -871,16 +866,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     @Override
     public boolean hurt(final DamageSource source, final float amount) {
-        if (this.damageCooldown > 0) {
-            return false;
-        }
-
-        if (source.getDirectEntity() instanceof Projectile projectile) {
+        if (source.getDirectEntity() instanceof Projectile) {
             if (!level().isClientSide()) {
                 handleProjectileImpact();
-                this.damageCooldown = 20; 
-                
-                projectile.discard();
             }
             return true;
         }
@@ -959,7 +947,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         setYBodyRot(yaw);
         setYHeadRot(yaw);
         this.bodyYaw = yaw;
-        this.bodyPitch = -10.0D;
+        this.bodyPitch = -10.0D; // Initial pitch up (negative is up)
         this.bodyRoll = 0.0D;
         this.bodyRollO = 0.0D;
         setXRot((float) this.bodyPitch);
