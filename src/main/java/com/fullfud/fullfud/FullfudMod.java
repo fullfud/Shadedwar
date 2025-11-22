@@ -1,6 +1,7 @@
 package com.fullfud.fullfud;
 
 import com.fullfud.fullfud.client.ShahedClientHandler;
+import com.fullfud.fullfud.client.FpvClientHandler;
 import com.fullfud.fullfud.core.FullfudCreativeTabs;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
@@ -30,6 +31,7 @@ public final class FullfudMod {
         DistExecutor.safeRunWhenOn(Dist.CLIENT, () -> () -> {
             modEventBus.addListener(this::onClientSetup);
             ShahedClientHandler.registerClientEvents(modEventBus);
+            FpvClientHandler.registerClientEvents(modEventBus);
         });
     }
 
@@ -39,5 +41,6 @@ public final class FullfudMod {
 
     private void onClientSetup(final FMLClientSetupEvent event) {
         ShahedClientHandler.onClientSetup(event);
+        FpvClientHandler.onClientSetup(event);
     }
 }

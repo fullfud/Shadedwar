@@ -1,6 +1,7 @@
 package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.FullfudMod;
+import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedColor;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
@@ -10,6 +11,9 @@ import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.common.item.RebEmitterItem;
 import com.fullfud.fullfud.common.item.ShahedLauncherItem;
 import com.fullfud.fullfud.common.item.ShahedDroneItem;
+import com.fullfud.fullfud.common.item.FpvDroneItem;
+import com.fullfud.fullfud.common.item.FpvControllerItem;
+import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvent;
@@ -46,6 +50,18 @@ public final class FullfudRegistries {
         new ShahedDroneItem(new Item.Properties().stacksTo(1), ShahedColor.BLACK)
     );
 
+    public static final RegistryObject<Item> FPV_DRONE_ITEM = ITEMS.register("fpv_drone", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1))
+    );
+
+    public static final RegistryObject<Item> FPV_CONTROLLER_ITEM = ITEMS.register("fpv_controller", () ->
+        new FpvControllerItem(new Item.Properties().stacksTo(1))
+    );
+
+    public static final RegistryObject<Item> FPV_GOGGLES_ITEM = ITEMS.register("fpv_goggles", () ->
+        new FpvGogglesItem(new Item.Properties().stacksTo(1))
+    );
+
     public static final RegistryObject<Item> SHAHED_LAUNCHER_ITEM = ITEMS.register("shahed_launcher", () ->
         new ShahedLauncherItem(new Item.Properties().stacksTo(1))
     );
@@ -65,6 +81,15 @@ public final class FullfudRegistries {
             .updateInterval(1)
             .setShouldReceiveVelocityUpdates(true)
             .build(resource("shahed_136").toString())
+    );
+
+    public static final RegistryObject<EntityType<FpvDroneEntity>> FPV_DRONE_ENTITY = ENTITY_TYPES.register("fpv_drone", () ->
+        EntityType.Builder.<FpvDroneEntity>of(FpvDroneEntity::new, MobCategory.MISC)
+            .sized(0.9F, 0.35F)
+            .clientTrackingRange(96)
+            .updateInterval(1)
+            .setShouldReceiveVelocityUpdates(true)
+            .build(resource("fpv_drone").toString())
     );
 
     public static final RegistryObject<EntityType<ShahedLauncherEntity>> SHAHED_LAUNCHER_ENTITY = ENTITY_TYPES.register("shahed_launcher", () ->
