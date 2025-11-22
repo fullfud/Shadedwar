@@ -330,7 +330,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         float throttle = Mth.clamp(getThrust(), 0.0F, 1.0F);
 
         if (fuelMass > 0.0D && throttle > 0.0F) {
-            final double burn = Math.pow(throttle, 1.5D) * FUEL_CONSUMPTION_PER_SEC * dt;
+            double burn = Math.pow(throttle, 1.5D) * FUEL_CONSUMPTION_PER_SEC * dt;
+            if (throttle < 0.8F) {
+                burn *= 0.6D;
+            }
             fuelMass = Math.max(0.0D, fuelMass - burn);
         }
         if (fuelMass <= 0.0D) {
@@ -423,7 +426,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             (float) airDensity
         );
     }
-
+    
     private void integrateAttitude(final double dt) {
         double targetRollRate = controlStrafe * MAX_ROLL_RATE;
         rollRate = approach(rollRate, Math.toRadians(targetRollRate), Math.toRadians(ROLL_ACCEL) * dt);
