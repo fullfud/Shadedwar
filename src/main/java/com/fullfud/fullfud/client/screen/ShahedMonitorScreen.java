@@ -92,9 +92,40 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
         ensureCamera();
         updateJammerOverlay();
+        
+        applyCameraShake(status);
+
         if (++controlTicker >= CONTROL_INTERVAL) {
             controlTicker = 0;
             sendControlInput();
+        }
+    }
+    
+    private void applyCameraShake(ShahedStatusPacket status) {
+        if (minecraft == null || minecraft.cameraEntity == null) return;
+        if (!(minecraft.cameraEntity instanceof ShahedDroneEntity drone)) return;
+
+        float thrust = status.thrust();
+        float vSpeed = status.verticalSpeed();
+
+        float engineShake = (thrust * thrust) * 1.2F; 
+
+        float diveShake = 0.0F;
+        if (vSpeed < -15.0F) {
+            float diveFactor = Math.min(Math.abs(vSpeed) - 15.0F, 40.0F) / 40.0F; 
+            diveShake = diveFactor * 2.5F;
+        }
+
+        float totalShake = Math.max(engineShake, diveShake);
+
+        if (totalShake > 0.01F) {
+            float rx = (float) ((Math.random() - 0.5D) * totalShake);
+            float ry = (float) ((Math.random() - 0.5D) * totalShake);
+
+            drone.setXRot(drone.getXRot() + rx);
+            drone.setYRot(drone.getYRot() + ry);
+            drone.xRotO += rx;
+            drone.yRotO += ry;
         }
     }
 
@@ -148,7 +179,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         final int monitorHeight = height;
 
         graphics.fill(monitorX, monitorY, monitorX + monitorWidth, monitorY + monitorHeight, 0x00000000);
-        graphics.renderOutline(monitorX, monitorY, monitorWidth, monitorHeight, 0x80FFFFFF);
 
         final ShahedStatusPacket status = ShahedClientHandler.getLastStatus();
         final boolean liveSignal = hasLiveFeed(status);
@@ -295,48 +325,56 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
         final SmoothedStatusSnapshot smoothed = smoothedStatus.sample(status);
 
-        final int padding = 24;
+        final int margin = 15;
+        final int textHeight = 10;
+        final int primaryColor = 0xFFFFFFFF;
+        final int secondaryColor = 0xFF00C99C;
+        
+        int leftY = margin;
+        int rightY = margin;
 
-        final int infoWidth = 240;
-        final int infoHeight = 52;
-        drawOverlayPanel(graphics, padding - 10, padding - 10, infoWidth + 20, infoHeight + 20);
-        graphics.drawString(font, Component.literal(String.format("X %.1f  Z %.1f", smoothed.x(), smoothed.z())), padding, padding, 0xFFFFFFFF, false);
-        graphics.drawString(font, Component.literal(String.format("Y %.1f", smoothed.y())), padding, padding + 14, 0xFFE6E6E6, false);
-        graphics.drawString(font, Component.literal(String.format("Heading %.0f°", smoothed.yaw())), padding, padding + 28, 0xFFE6E6E6, false);
+        int leftBoxW = 130;
+        int leftBoxH = 66;
+        drawOverlayPanel(graphics, margin - 5, margin - 5, leftBoxW, leftBoxH);
 
-        final int powerPanelWidth = 240;
-        final int powerPanelX = width - padding - powerPanelWidth;
-        final int powerPanelY = padding - 10;
-        drawOverlayPanel(graphics, powerPanelX, powerPanelY, powerPanelWidth, 60);
-        drawPowerBar(graphics, powerPanelX + 16, powerPanelY + 32, status.thrust());
+        float airspeedKph = status.airSpeed() * 3.6F;
+        float groundSpeedKph = status.groundSpeed() * 3.6F;
+        
+        graphics.drawString(font, Component.literal(String.format("SPD  %3.0f km/h", airspeedKph)), margin, leftY, secondaryColor, false);
+        leftY += textHeight + 2;
+        graphics.drawString(font, Component.literal(String.format("GND  %3.0f km/h", groundSpeedKph)), margin, leftY, primaryColor, false);
+        leftY += textHeight + 2;
+        graphics.drawString(font, Component.literal(String.format("ALT  %.1f m", smoothed.y())), margin, leftY, secondaryColor, false);
+        leftY += textHeight + 2;
+        graphics.drawString(font, Component.literal(String.format("VSPD %+.1f m/s", status.verticalSpeed())), margin, leftY, primaryColor, false);
+        leftY += textHeight + 2;
+        graphics.drawString(font, Component.literal(String.format("AoA  %+.1f", status.angleOfAttack())), margin, leftY, 0xFFE6F58C, false);
 
-        final float relativeYaw = computeRelativeYaw(smoothed.x(), smoothed.z());
-        drawCompass(graphics, width / 2, padding + 36, relativeYaw);
+        int rightBoxW = 140;
+        int rightBoxH = 54;
+        int rightX = width - margin - rightBoxW;
+        drawOverlayPanel(graphics, rightX + 5, margin - 5, rightBoxW, rightBoxH);
+        
+        int textRightX = width - margin - 130;
 
-        final int telemetryPanelWidth = 260;
-        final int telemetryPanelHeight = 96;
-        final int telemetryX = padding - 10;
-        final int telemetryY = height - padding - telemetryPanelHeight;
-        drawOverlayPanel(graphics, telemetryX, telemetryY, telemetryPanelWidth, telemetryPanelHeight);
-        drawTelemetry(graphics, telemetryX + 10, telemetryY + 12, status);
-
-        final int slipPanelWidth = 200;
-        final int slipPanelHeight = 52;
-        final int slipX = width - padding - slipPanelWidth;
-        final int slipY = height - padding - slipPanelHeight;
-        drawOverlayPanel(graphics, slipX, slipY, slipPanelWidth, slipPanelHeight);
-        drawSlipIndicator(graphics, slipX + 12, slipY + slipPanelHeight - 16, status.slipAngle());
+        graphics.drawString(font, Component.literal(String.format("X %.1f  Z %.1f", smoothed.x(), smoothed.z())), textRightX, rightY, primaryColor, false);
+        rightY += textHeight + 2;
+        graphics.drawString(font, Component.literal(String.format("HDG %.0f°", smoothed.yaw())), textRightX, rightY, secondaryColor, false);
+        rightY += textHeight + 2;
+        graphics.drawString(font, Component.literal(String.format("FUEL %.1f kg", status.fuelKg())), textRightX, rightY, 0xFFF8DFA6, false);
+        rightY += textHeight + 2;
+        
 
         final ShahedDroneEntity drone = resolveDrone();
         if (drone != null) {
-            final int previewBoxSize = 132;
-            final int previewBoxX = width - padding - previewBoxSize;
-            final int previewBoxY = powerPanelY + 70;
-            drawOverlayPanel(graphics, previewBoxX, previewBoxY, previewBoxSize, previewBoxSize);
-            graphics.drawString(font, Component.literal("Drone Preview"), previewBoxX + 8, previewBoxY + 8, 0xFF9BE6C8, false);
-            final int previewCenterY = previewBoxY + (previewBoxSize / 2) + font.lineHeight / 2;
-            drawDronePreview(graphics, previewBoxX + previewBoxSize / 2, previewCenterY, 20, drone, partialTick);
+            final int previewSize = 80;
+            final int previewX = width - previewSize - margin;
+            final int previewY = height - previewSize - margin;
+            drawOverlayPanel(graphics, previewX, previewY, previewSize, previewSize);
+            drawDronePreview(graphics, previewX + previewSize / 2, previewY + previewSize / 2 + 10, 14, drone, partialTick);
         }
+
+        drawPowerBar(graphics, width / 2 - 80, height - 30, status.thrust());
 
         drawReticle(graphics);
 
@@ -345,50 +383,32 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
     }
 
+    private void drawOverlayPanel(final GuiGraphics graphics, final int x, final int y, final int width, final int height) {
+        graphics.fill(x, y, x + width, y + height, 0x60000000);
+    }
+
     private void drawPowerBar(final GuiGraphics graphics, final int x, final int y, final float thrust) {
         final int barWidth = 160;
-        final int barHeight = 10;
-        graphics.renderOutline(x, y, barWidth, barHeight, 0xFF2F2F35);
-
-        int fillWidth = (int) (Math.max(0.03F, thrust) * barWidth);
-        fillWidth = Mth.clamp(fillWidth, 2, barWidth - 1);
-        final int color = thrust > 0.75F ? 0xFF1FFFD2 : 0xFF00C99C;
-        graphics.fill(x + 1, y + 1, x + fillWidth, y + barHeight - 1, color);
-        graphics.drawString(font, Component.literal("Power " + Math.round(thrust * 100F) + "%"), x, y - 10, 0xFF00C99C, false);
-    }
-
-    private void drawTelemetry(final GuiGraphics graphics, final int baseX, final int startY, final ShahedStatusPacket status) {
-        int lineY = startY;
-        final float airspeedKph = status.airSpeed() * 3.6F;
-        final float groundSpeedKph = status.groundSpeed() * 3.6F;
-        graphics.drawString(font, Component.literal(String.format("IAS %3.0f km/h", airspeedKph)), baseX, lineY, 0xFFB8F2FF, false);
-        lineY += 12;
-        graphics.drawString(font, Component.literal(String.format("GS %3.0f km/h", groundSpeedKph)), baseX, lineY, 0xFF9BE6C8, false);
-        lineY += 12;
-        graphics.drawString(font, Component.literal(String.format("VSPD %+.1f m/s", status.verticalSpeed())), baseX, lineY, 0xFF9BD8FF, false);
-        lineY += 12;
-        graphics.drawString(font, Component.literal(String.format("AoA %+.1f deg  Slip %+.1f deg", status.angleOfAttack(), status.slipAngle())), baseX, lineY, 0xFFE6F58C, false);
-        lineY += 12;
-        graphics.drawString(font, Component.literal(String.format("Fuel %.1f kg  rho %.2f kg/m^3", status.fuelKg(), status.airDensity())), baseX, lineY, 0xFFF8DFA6, false);
-    }
-
-    private void drawSlipIndicator(final GuiGraphics graphics, final int x, final int y, final float slipAngle) {
-        final int width = 160;
-        final int height = 12;
-        graphics.drawString(font, Component.literal(String.format("Slip %+.1f deg", slipAngle)), x, y - 12, 0xFFFFE36E, false);
-        graphics.renderOutline(x, y, width, height, 0xFF2F2F35);
-        graphics.fill(x + 1, y + 1, x + width - 1, y + height - 1, 0x40101015);
-        final float normalized = Mth.clamp(slipAngle / 15.0F, -1.0F, 1.0F);
-        final int markerX = (int) (x + width * 0.5F + normalized * (width * 0.5F - 4));
-        graphics.fill(markerX - 3, y + 1, markerX + 3, y + height - 1, 0xFFFFD45C);
+        final int barHeight = 6;
+        
+        graphics.fill(x, y, x + barWidth, y + barHeight, 0x80000000);
+        
+        int fillWidth = (int) (Math.max(0.0F, thrust) * barWidth);
+        fillWidth = Mth.clamp(fillWidth, 0, barWidth);
+        
+        final int color = thrust > 0.9F ? 0xFF1FFFD2 : 0xFF00C99C;
+        graphics.fill(x, y, x + fillWidth, y + barHeight, color);
+        
+        graphics.drawString(font, Component.literal((int)(thrust * 100F) + "%"), x + barWidth + 6, y - 1, 0xFF00C99C, false);
+        graphics.drawString(font, Component.literal("THR"), x - 24, y - 1, 0xFFFFFFFF, false);
     }
 
     private void drawReticle(final GuiGraphics graphics) {
         final int centerX = this.width / 2;
         final int centerY = this.height / 2;
-        final int length = 20;
+        final int length = 9; 
         final int thickness = 1;
-        final int color = 0x80202020;
+        final int color = 0xB0000000; 
 
         graphics.fill(centerX - length, centerY - thickness, centerX + length, centerY + thickness, color);
         graphics.fill(centerX - thickness, centerY - length, centerX + thickness, centerY + length, color);
@@ -426,34 +446,6 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         poseStack.popPose();
         Lighting.setupFor3DItems();
         RenderSystem.disableDepthTest();
-    }
-
-    private void drawCompass(final GuiGraphics graphics, final int centerX, final int centerY, final float relativeYaw) {
-        final int radius = 26;
-        graphics.fill(centerX - radius, centerY - radius, centerX + radius, centerY + radius, 0x40101010);
-        graphics.renderOutline(centerX - radius, centerY - radius, radius * 2, radius * 2, 0xFF2E2E35);
-
-        final double angleRad = Math.toRadians(relativeYaw);
-        final int arrowX = centerX + (int) (Math.sin(angleRad) * (radius - 4));
-        final int arrowY = centerY - (int) (Math.cos(angleRad) * (radius - 4));
-        graphics.fill(arrowX - 2, arrowY - 2, arrowX + 2, arrowY + 2, 0xFF00FFD5);
-        graphics.drawString(font, Component.literal("N"), centerX - 4, centerY - radius - 10, 0xFFE6F2FF, false);
-    }
-
-    private void drawOverlayPanel(final GuiGraphics graphics, final int x, final int y, final int boxWidth, final int boxHeight) {
-        graphics.fill(x, y, x + boxWidth, y + boxHeight, 0x50000000);
-        graphics.renderOutline(x, y, boxWidth, boxHeight, 0x80181818);
-    }
-
-    private float computeRelativeYaw(final double droneX, final double droneZ) {
-        if (this.minecraft == null || this.minecraft.player == null) {
-            return 0.0F;
-        }
-        final double dx = droneX - this.minecraft.player.getX();
-        final double dz = droneZ - this.minecraft.player.getZ();
-        final double targetAngle = Math.toDegrees(Math.atan2(dz, dx));
-        final float playerYaw = this.minecraft.player.getYRot();
-        return (float) Mth.wrapDegrees(targetAngle - (playerYaw + 90.0F));
     }
 
     private void sendControlInput() {
