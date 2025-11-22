@@ -1,1 +1,4 @@
-{"parent":"minecraft:item/generated","textures":{"layer0":"fullfud:item/monitor_control"}}
+{
+  "parent": "builtin/entity",
+  "gui_light": "front"
+}

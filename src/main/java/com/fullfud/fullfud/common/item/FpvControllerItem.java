@@ -1,7 +1,8 @@
 package com.fullfud.fullfud.common.item;
 
+import com.fullfud.fullfud.client.render.FpvControllerRenderer;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
-import com.fullfud.fullfud.common.item.FpvGogglesItem;
+import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -11,12 +12,19 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraftforge.client.extensions.common.IClientItemExtensions;
+import software.bernie.geckolib.animatable.GeoItem;
+import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
+import software.bernie.geckolib.core.animation.AnimatableManager;
+import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 
-public class FpvControllerItem extends Item {
+public class FpvControllerItem extends Item implements GeoItem {
     private static final String LINK_TAG = "LinkedFpvDrone";
+    private final AnimatableInstanceCache cache = GeckoLibUtil.createInstanceCache(this);
 
     public FpvControllerItem(final Properties properties) {
         super(properties);
@@ -97,5 +105,28 @@ public class FpvControllerItem extends Item {
                 }
             }
         }
+    }
+
+    @Override
+    public void registerControllers(AnimatableManager.ControllerRegistrar controllers) {
+    }
+
+    @Override
+    public AnimatableInstanceCache getAnimatableInstanceCache() {
+        return cache;
+    }
+
+    @Override
+    public void initializeClient(Consumer<IClientItemExtensions> consumer) {
+        consumer.accept(new IClientItemExtensions() {
+            private FpvControllerRenderer renderer;
+
+            @Override
+            public BlockEntityWithoutLevelRenderer getCustomRenderer() {
+                if (this.renderer == null)
+                    this.renderer = new FpvControllerRenderer();
+                return this.renderer;
+            }
+        });
     }
 }
