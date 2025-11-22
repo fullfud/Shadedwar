@@ -7,8 +7,8 @@
 /.classpath
 /.project
 /.settings/
+/run/
 
-# System files
 Thumbs.db
 *.log
 *.tmp
