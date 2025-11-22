@@ -7,7 +7,7 @@ import software.bernie.geckolib.model.GeoModel;
 
 public class FpvGogglesModel extends GeoModel<FpvGogglesItem> {
     private static final ResourceLocation MODEL = new ResourceLocation(FullfudMod.MOD_ID, "geo/fpv_goggles.geo.json");
-    private static final ResourceLocation TEXTURE = new ResourceLocation(FullfudMod.MOD_ID, "textures/item/fpv_goggles.png");
+    private static final ResourceLocation TEXTURE = new ResourceLocation(FullfudMod.MOD_ID, "textures/models/armor/fpv_goggles.png");
     private static final ResourceLocation ANIM = new ResourceLocation(FullfudMod.MOD_ID, "animations/fpv_goggles.animation.json");
 
     @Override
