@@ -86,7 +86,7 @@ public final class FullfudRegistries {
     public static final RegistryObject<EntityType<FpvDroneEntity>> FPV_DRONE_ENTITY = ENTITY_TYPES.register("fpv_drone", () ->
         EntityType.Builder.<FpvDroneEntity>of(FpvDroneEntity::new, MobCategory.MISC)
             .sized(0.9F, 0.35F)
-            .clientTrackingRange(96)
+            .clientTrackingRange(256)
             .updateInterval(1)
             .setShouldReceiveVelocityUpdates(true)
             .build(resource("fpv_drone").toString())

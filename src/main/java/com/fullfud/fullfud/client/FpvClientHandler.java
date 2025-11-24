@@ -7,6 +7,7 @@ import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import net.minecraft.client.KeyMapping;
@@ -14,6 +15,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.PauseScreen;
+import net.minecraft.client.renderer.PostChain;
+import net.minecraft.client.renderer.PostPass;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
@@ -32,6 +35,8 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.lwjgl.glfw.GLFW;
 
+import java.lang.reflect.Field;
+import java.util.List;
 import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
@@ -58,6 +63,8 @@ public final class FpvClientHandler {
     private static final ResourceLocation SIGNAL_75 = new ResourceLocation("fullfud", "textures/gui/hud/signal/75.png");
     private static final ResourceLocation SIGNAL_100 = new ResourceLocation("fullfud", "textures/gui/hud/signal/100.png");
 
+    private static final ResourceLocation SHADER_LOC = new ResourceLocation("fullfud", "shaders/post/fpv_post.json");
+
     private static UUID activeDrone;
     private static float throttleDemand;
     private static double speedMs;
@@ -65,6 +72,7 @@ public final class FpvClientHandler {
     private static boolean escRequested;
     private static boolean releaseSent;
     private static double distanceToPilot;
+    private static boolean wasInFpv = false;
 
     private FpvClientHandler() {
     }
@@ -101,22 +109,40 @@ public final class FpvClientHandler {
             resetState();
             return;
         }
+        
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) {
             resetState();
             return;
         }
+        
         final UUID controller = drone.getControllerId();
         if (controller == null || !controller.equals(minecraft.player.getUUID())) {
+            resetState();
             return;
         }
+        
         if (!hasLinkedGoggles(minecraft, drone)) {
             if (!releaseSent) {
                 FullfudNetwork.getChannel().sendToServer(new FpvReleasePacket(drone.getUUID()));
                 releaseSent = true;
             }
+            resetState();
             return;
         } else {
             releaseSent = false;
+        }
+
+        if (!wasInFpv) {
+            try {
+                minecraft.gameRenderer.loadEffect(SHADER_LOC);
+                wasInFpv = true;
+            } catch (Exception e) {
+                wasInFpv = false;
+            }
+        }
+        
+        if (wasInFpv) {
+            updateShaderUniforms(minecraft, drone.getSignalQuality());
         }
         
         if (minecraft.screen instanceof PauseScreen && !escRequested) {
@@ -156,11 +182,38 @@ public final class FpvClientHandler {
     }
     
     private static void resetState() {
+        if (wasInFpv) {
+            Minecraft.getInstance().gameRenderer.shutdownEffect();
+            wasInFpv = false;
+        }
         activeDrone = null;
         throttleDemand = 0.0F;
         escRequested = false;
         releaseSent = false;
         distanceToPilot = 0;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void updateShaderUniforms(final Minecraft mc, final float signalQuality) {
+        final PostChain chain = mc.gameRenderer.currentEffect();
+        if (chain != null) {
+            try {
+                // Использование рефлексии для доступа к приватному полю 'passes'
+                Field passesField = PostChain.class.getDeclaredField("passes");
+                passesField.setAccessible(true);
+                List<PostPass> passes = (List<PostPass>) passesField.get(chain);
+
+                for (final PostPass pass : passes) {
+                    // EffectInstance имеет метод getUniform напрямую
+                    final Uniform uniform = pass.getEffect().getUniform("SignalQuality");
+                    if (uniform != null) {
+                        uniform.set(signalQuality);
+                    }
+                }
+            } catch (Exception e) {
+                // Игнорируем ошибки рефлексии
+            }
+        }
     }
 
     private static float axis(final boolean positive, final boolean negative) {
@@ -194,8 +247,8 @@ public final class FpvClientHandler {
         
         Font font = minecraft.font; 
         
-        double maxDist = 500.0D;
-        int rssi = (int) Mth.clamp(100.0D - (distanceToPilot / maxDist * 100.0D), 0, 100);
+        float quality = drone.getSignalQuality();
+        int rssi = (int)(quality * 100.0F);
         int battery = drone.getBatteryPercent();
 
         int cx = w / 2;

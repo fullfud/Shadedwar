@@ -26,6 +26,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -42,6 +43,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
@@ -66,6 +68,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Optional<UUID>> DATA_CONTROLLER = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Integer> DATA_BATTERY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Float> DATA_SIGNAL_QUALITY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     
     private static final EntityDimensions DRONE_SIZE = EntityDimensions.scalable(0.7F, 0.25F);
     private static final RawAnimation IDLE_ANIM = RawAnimation.begin().thenLoop("idle");
@@ -143,6 +146,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.entityData.define(DATA_ROLL, 0.0F);
         this.entityData.define(DATA_CONTROLLER, Optional.empty());
         this.entityData.define(DATA_BATTERY, MAX_BATTERY_TICKS);
+        this.entityData.define(DATA_SIGNAL_QUALITY, 1.0F);
     }
 
     @Override
@@ -278,6 +282,11 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 int drain = 1 + (int)(throttleOutput * 3.0F);
                 entityData.set(DATA_BATTERY, Math.max(0, currentBat - drain));
             }
+        } else {
+            targetThrottle = 0.0F;
+            inputPitch = 0.0F;
+            inputRoll = 0.0F;
+            inputYaw = 0.0F;
         }
 
         if (entityData.get(DATA_CONTROLLER).isPresent()) {
@@ -287,6 +296,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 setArmed(false);
                 removeAvatar();
             } else {
+                if (tickCount % 10 == 0) {
+                    calculateSignal(controller);
+                }
+
                 if (cameraPinned && isSignalLostFor(controller)) {
                      forceReturnCamera(controller);
                 }
@@ -302,11 +315,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         updateSimplePhysics();
         updateControllerBinding();
         
-        move(MoverType.SELF, getDeltaMovement());
+        Vec3 preMoveVelocity = getDeltaMovement();
+        move(MoverType.SELF, preMoveVelocity);
         
-        if ((horizontalCollision || verticalCollision) && isArmed()) {
-            double speed = getDeltaMovement().lengthSqr();
-            if (speed > 0.05D) {
+        if (isArmed() && (horizontalCollision || verticalCollision)) {
+            double hSpeed = Math.sqrt(preMoveVelocity.x * preMoveVelocity.x + preMoveVelocity.z * preMoveVelocity.z);
+            double limit = 0.5D; 
+            
+            if (hSpeed > limit) {
                 explode();
                 return;
             }
@@ -319,6 +335,54 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         throttleOutput = Mth.lerp(0.2F, throttleOutput, targetThrottle);
         entityData.set(DATA_THRUST, throttleOutput);
         entityData.set(DATA_ROLL, (float) droneRoll);
+    }
+    
+    private void calculateSignal(ServerPlayer controller) {
+        float signal = 1.0F;
+        double dist = Math.sqrt(this.distanceToSqr(controller));
+        
+        if (dist > 700.0D) {
+            signal = 0.0F;
+        } else if (dist > 500.0D) {
+            signal = (float) (1.0D - (dist - 500.0D) / 200.0D);
+        }
+        
+        if (signal > 0.0F) {
+            Vec3 start = controller.getEyePosition();
+            Vec3 end = this.position().add(0, 0.1, 0);
+            Vec3 vec = end.subtract(start);
+            Vec3 dir = vec.normalize();
+            double length = vec.length();
+            int obstacles = 0;
+            double currentDist = 0;
+            Vec3 currentPos = start;
+
+            while (obstacles <= 15 && currentDist < length) {
+                ClipContext context = new ClipContext(currentPos, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, controller);
+                HitResult result = level().clip(context);
+                
+                if (result.getType() != HitResult.Type.MISS) {
+                    obstacles++;
+                    currentPos = result.getLocation().add(dir.scale(0.5D));
+                    currentDist = start.distanceTo(currentPos);
+                } else {
+                    break;
+                }
+            }
+            
+            if (obstacles > 10) {
+                signal = 0.0F;
+            }
+            
+            List<RebEmitterEntity> jammers = level().getEntitiesOfClass(RebEmitterEntity.class, this.getBoundingBox().inflate(100.0D), 
+                reb -> reb.hasBattery() && reb.hasFinishedStartup());
+                
+            if (!jammers.isEmpty()) {
+                signal *= 0.1F; 
+            }
+        }
+        
+        entityData.set(DATA_SIGNAL_QUALITY, signal);
     }
     
     @Override
@@ -342,6 +406,12 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         float pRad = (float) Math.toRadians(-inputPitch * ROTATION_RATE_DEG);
         float rRad = (float) Math.toRadians(-inputRoll * ROTATION_RATE_DEG);
         float yRad = (float) Math.toRadians(-inputYaw * YAW_RATE_DEG);
+        
+        if (!isArmed()) {
+            pRad = 0;
+            rRad = 0;
+            yRad = 0;
+        }
 
         if (Float.isNaN(pRad)) pRad = 0;
         if (Float.isNaN(rRad)) rRad = 0;
@@ -375,7 +445,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
         double thrustForce = throttleOutput * MAX_THRUST;
         
-        if (getBatteryTicks() <= 0) {
+        if (getBatteryTicks() <= 0 || !isArmed()) {
             thrustForce = 0;
         }
 
@@ -608,7 +678,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
     
     private boolean isSignalLostFor(final ServerPlayer p) {
-        return p == null || Math.sqrt(p.distanceToSqr(this)) > 500.0D;
+        return p == null || getSignalQuality() <= 0.0F;
     }
 
     private void bindPlayer(final ServerPlayer player) {
@@ -740,6 +810,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     
     public int getBatteryPercent() {
         return (int) ((getBatteryTicks() / (float) MAX_BATTERY_TICKS) * 100);
+    }
+    
+    public float getSignalQuality() {
+        return entityData.get(DATA_SIGNAL_QUALITY);
     }
 
     public UUID getControllerId() {
