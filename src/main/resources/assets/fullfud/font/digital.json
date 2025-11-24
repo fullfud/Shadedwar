@@ -1,0 +1,12 @@
+{
+  "providers": [
+    {
+      "type": "ttf",
+      "file": "fullfud:vcr_osd_mono.ttf",
+      "shift": [0.0, 0.0],
+      "size": 11.0,
+      "oversample": 2.0,
+      "skip": ""
+    }
+  ]
+}

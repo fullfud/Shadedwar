@@ -7,12 +7,20 @@ import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
 import com.mojang.blaze3d.platform.InputConstants;
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.math.Axis;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.PauseScreen;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.network.chat.Style;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.EntityRenderersEvent;
@@ -20,7 +28,6 @@ import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.event.ViewportEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.lwjgl.glfw.GLFW;
@@ -33,14 +40,31 @@ public final class FpvClientHandler {
     private static final KeyMapping FPV_YAW_RIGHT = new KeyMapping("key.fullfud.fpv_yaw_right", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_E, "key.categories.fullfud");
     private static final KeyMapping FPV_ARM = new KeyMapping("key.fullfud.fpv_arm", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.fullfud");
 
+    private static final ResourceLocation FONT_DIGITAL_LOC = new ResourceLocation("fullfud", "digital");
+    private static final Style DIGITAL_STYLE = Style.EMPTY.withFont(FONT_DIGITAL_LOC);
+
+    private static final ResourceLocation TEX_PRICEL = new ResourceLocation("fullfud", "textures/gui/hud/pricel.png");
+    private static final ResourceLocation TEX_VERT = new ResourceLocation("fullfud", "textures/gui/hud/vert.png");
+    
+    private static final ResourceLocation BATTERY_0 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a0.png");
+    private static final ResourceLocation BATTERY_25 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a25.png");
+    private static final ResourceLocation BATTERY_50 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a50.png");
+    private static final ResourceLocation BATTERY_75 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a75.png");
+    private static final ResourceLocation BATTERY_100 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a100.png");
+
+    private static final ResourceLocation SIGNAL_0 = new ResourceLocation("fullfud", "textures/gui/hud/signal/0.png");
+    private static final ResourceLocation SIGNAL_25 = new ResourceLocation("fullfud", "textures/gui/hud/signal/25.png");
+    private static final ResourceLocation SIGNAL_50 = new ResourceLocation("fullfud", "textures/gui/hud/signal/50.png");
+    private static final ResourceLocation SIGNAL_75 = new ResourceLocation("fullfud", "textures/gui/hud/signal/75.png");
+    private static final ResourceLocation SIGNAL_100 = new ResourceLocation("fullfud", "textures/gui/hud/signal/100.png");
+
     private static UUID activeDrone;
     private static float throttleDemand;
-    private static double lastX;
-    private static double lastY;
-    private static double lastZ;
     private static double speedMs;
+    private static double groundSpeedKmh;
     private static boolean escRequested;
     private static boolean releaseSent;
+    private static double distanceToPilot;
 
     private FpvClientHandler() {
     }
@@ -74,17 +98,11 @@ public final class FpvClientHandler {
         }
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null || minecraft.level == null) {
-            activeDrone = null;
-            throttleDemand = 0.0F;
-            escRequested = false;
-            releaseSent = false;
+            resetState();
             return;
         }
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) {
-            activeDrone = null;
-            throttleDemand = 0.0F;
-            escRequested = false;
-            releaseSent = false;
+            resetState();
             return;
         }
         final UUID controller = drone.getControllerId();
@@ -100,6 +118,7 @@ public final class FpvClientHandler {
         } else {
             releaseSent = false;
         }
+        
         if (minecraft.screen instanceof PauseScreen && !escRequested) {
             escRequested = true;
             FullfudNetwork.getChannel().sendToServer(new FpvReleasePacket(drone.getUUID()));
@@ -107,32 +126,41 @@ public final class FpvClientHandler {
         } else if (!(minecraft.screen instanceof PauseScreen)) {
             escRequested = false;
         }
+
         if (activeDrone == null || !activeDrone.equals(drone.getUUID())) {
             throttleDemand = drone.getThrust();
             activeDrone = drone.getUUID();
-            lastX = drone.getX();
-            lastY = drone.getY();
-            lastZ = drone.getZ();
         }
-        final double dx = drone.getX() - lastX;
-        final double dy = drone.getY() - lastY;
-        final double dz = drone.getZ() - lastZ;
-        speedMs = Math.sqrt(dx * dx + dy * dy + dz * dz) * 20.0D;
-        lastX = drone.getX();
-        lastY = drone.getY();
-        lastZ = drone.getZ();
+        
+        Vec3 velocity = drone.getDeltaMovement();
+        speedMs = velocity.length() * 20.0D;
+        Vec3 horiz = new Vec3(velocity.x, 0, velocity.z);
+        groundSpeedKmh = horiz.length() * 20.0D * 3.6D;
+        
+        distanceToPilot = Math.sqrt(drone.distanceToSqr(minecraft.player));
+
         final float pitchInput = axis(minecraft.options.keyUp.isDown(), minecraft.options.keyDown.isDown());
         final float rollInput = axis(minecraft.options.keyLeft.isDown(), minecraft.options.keyRight.isDown());
         final float yawInput = axis(FPV_YAW_LEFT.isDown(), FPV_YAW_RIGHT.isDown());
         final float throttleDelta = axis(minecraft.options.keyJump.isDown(), minecraft.options.keyShift.isDown());
+        
         if (Math.abs(throttleDelta) > 0.001F) {
             throttleDemand = Mth.clamp(throttleDemand + throttleDelta * 0.02F, 0.0F, 1.0F);
         }
+        
         byte armAction = 0;
         if (FPV_ARM.consumeClick()) {
             armAction = drone.isArmed() ? (byte) 2 : (byte) 1;
         }
         FullfudNetwork.getChannel().sendToServer(new FpvControlPacket(drone.getUUID(), pitchInput, rollInput, yawInput, throttleDemand, armAction));
+    }
+    
+    private static void resetState() {
+        activeDrone = null;
+        throttleDemand = 0.0F;
+        escRequested = false;
+        releaseSent = false;
+        distanceToPilot = 0;
     }
 
     private static float axis(final boolean positive, final boolean negative) {
@@ -151,35 +179,115 @@ public final class FpvClientHandler {
 
     private static void onRenderGui(final net.minecraftforge.client.event.RenderGuiEvent.Post event) {
         final Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft == null || minecraft.player == null) {
-            return;
-        }
-        if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) {
-            return;
-        }
+        if (minecraft == null || minecraft.player == null) return;
+        if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;
+        
         final UUID controller = drone.getControllerId();
         if (controller == null || !controller.equals(minecraft.player.getUUID()) || !hasLinkedGoggles(minecraft, drone)) {
             return;
         }
+
         final GuiGraphics g = event.getGuiGraphics();
+        final PoseStack pose = g.pose();
         final int w = minecraft.getWindow().getGuiScaledWidth();
         final int h = minecraft.getWindow().getGuiScaledHeight();
-        final int cx = w / 2;
-        final int cy = h / 2;
-        g.fill(cx - 1, cy - 6, cx + 1, cy + 6, 0x80FFFFFF);
-        g.fill(cx - 6, cy - 1, cx + 6, cy + 1, 0x80FFFFFF);
-        final String throttle = String.format("PWR %3d%%", (int) (drone.getThrust() * 100.0F));
-        final String armed = drone.isArmed() ? "ARMED" : "SAFE";
-        final String speed = String.format("%.1f m/s", speedMs);
-        final String alt = String.format("ALT %.1f", drone.getY());
-        int y = h - 45;
-        g.drawString(minecraft.font, armed, 12, y, drone.isArmed() ? 0xFFFF5555 : 0xFF55FF55, false);
-        y += 10;
-        g.drawString(minecraft.font, throttle, 12, y, 0xFFFFFFFF, false);
-        y += 10;
-        g.drawString(minecraft.font, speed, 12, y, 0xFFFFFFFF, false);
-        y += 10;
-        g.drawString(minecraft.font, alt, 12, y, 0xFFFFFFFF, false);
+        
+        Font font = minecraft.font; 
+        
+        double maxDist = 500.0D;
+        int rssi = (int) Mth.clamp(100.0D - (distanceToPilot / maxDist * 100.0D), 0, 100);
+        int battery = drone.getBatteryPercent();
+
+        int cx = w / 2;
+        int cy = h / 2;
+        float partial = minecraft.getPartialTick();
+        float roll = drone.getVisualRoll(partial);
+        float pitch = drone.getVisualPitch(partial);
+
+        g.blit(TEX_PRICEL, cx - 16, cy - 16, 0, 0, 32, 32, 32, 32);
+
+        pose.pushPose();
+        pose.translate(cx, cy, 0);
+        pose.mulPose(Axis.ZP.rotationDegrees(-roll));
+        
+        float pitchOffset = pitch * 2.5F; 
+        pose.translate(0, pitchOffset, 0);
+        
+        pose.scale(2.0F, 2.0F, 1.0F);
+        g.blit(TEX_VERT, -32, -2, 0, 0, 64, 4, 64, 4);
+        
+        pose.popPose();
+
+        ResourceLocation batTex = getBatteryTexture(battery);
+        g.blit(batTex, 10, 10, 16, 32, 0, 0, 64, 128, 64, 128);
+
+        ResourceLocation sigTex = getSignalTexture(rssi);
+        int sigW = 64; 
+        int sigH = 32;
+        int sigX = w - 10 - sigW; 
+        g.blit(sigTex, sigX, 10, sigW, sigH, 0, 0, 128, 64, 128, 64);
+        
+        MutableComponent acroText = Component.literal("ACRO").withStyle(DIGITAL_STYLE);
+        int acroW = font.width(acroText);
+        g.drawString(font, acroText, cx - acroW / 2, 45, 0xFFFFFFFF, true);
+
+        if (!drone.isArmed()) {
+            MutableComponent disarmedText = Component.literal("D  I  S  A  R  M  E  D").withStyle(DIGITAL_STYLE);
+            int dW = font.width(disarmedText);
+            int dY = (int)(h * 0.75f);
+            
+            g.drawString(font, disarmedText, cx - dW / 2, dY, 0xFFFFFFFF, true);
+        }
+
+        if (rssi < 20) {
+            if (System.currentTimeMillis() % 1000 < 500) {
+                MutableComponent warning = Component.literal("SIGNAL LOST").withStyle(DIGITAL_STYLE);
+                int sw = font.width(warning);
+                g.drawString(font, warning, cx - sw / 2, cy - 30, 0xFFFF0000, true);
+            }
+        }
+        
+        MutableComponent batText = Component.literal(String.valueOf(battery)).withStyle(DIGITAL_STYLE);
+        g.drawString(font, batText, 30, 22, 0xFFFFFFFF, true);
+
+        MutableComponent rssiText = Component.literal(String.valueOf(rssi)).withStyle(DIGITAL_STYLE);
+        int rssiTextW = font.width(rssiText);
+        g.drawString(font, rssiText, sigX - rssiTextW - 5, 22, 0xFFFFFFFF, true);
+
+        int botY = h - 10;
+        
+        MutableComponent cZ = Component.literal(String.format("z = %.0f", drone.getZ())).withStyle(DIGITAL_STYLE);
+        MutableComponent cY = Component.literal(String.format("y = %.0f", drone.getY())).withStyle(DIGITAL_STYLE);
+        MutableComponent cX = Component.literal(String.format("x = %.0f", drone.getX())).withStyle(DIGITAL_STYLE);
+
+        g.drawString(font, cZ, 10, botY, 0xFFFFFFFF, true);
+        g.drawString(font, cY, 10, botY - 10, 0xFFFFFFFF, true);
+        g.drawString(font, cX, 10, botY - 20, 0xFFFFFFFF, true);
+
+        MutableComponent power = Component.literal(String.format("Power = %3d%%", (int)(drone.getThrust() * 100))).withStyle(DIGITAL_STYLE);
+        MutableComponent ias = Component.literal(String.format("IAS = %.0f KM/h", speedMs * 3.6D)).withStyle(DIGITAL_STYLE);
+        MutableComponent gs = Component.literal(String.format("GS = %.0f KM/h", groundSpeedKmh)).withStyle(DIGITAL_STYLE);
+
+        int rightX = w - 10;
+        g.drawString(font, gs, rightX - font.width(gs), botY, 0xFFFFFFFF, true);
+        g.drawString(font, ias, rightX - font.width(ias), botY - 10, 0xFFFFFFFF, true);
+        g.drawString(font, power, rightX - font.width(power), botY - 20, 0xFFFFFFFF, true);
+    }
+
+    private static ResourceLocation getBatteryTexture(int percent) {
+        if (percent >= 75) return BATTERY_100;
+        if (percent >= 50) return BATTERY_75;
+        if (percent >= 25) return BATTERY_50;
+        if (percent > 0) return BATTERY_25;
+        return BATTERY_0;
+    }
+
+    private static ResourceLocation getSignalTexture(int percent) {
+        if (percent >= 75) return SIGNAL_100;
+        if (percent >= 50) return SIGNAL_75;
+        if (percent >= 25) return SIGNAL_50;
+        if (percent > 0) return SIGNAL_25;
+        return SIGNAL_0;
     }
 
     private static boolean hasLinkedGoggles(final Minecraft minecraft, final FpvDroneEntity drone) {

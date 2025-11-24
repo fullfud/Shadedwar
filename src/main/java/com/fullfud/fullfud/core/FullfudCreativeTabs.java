@@ -9,26 +9,22 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.RegistryObject;
 
-public final class FullfudCreativeTabs {
-    private FullfudCreativeTabs() {
-    }
+public class FullfudCreativeTabs {
+    public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS =
+            DeferredRegister.create(Registries.CREATIVE_MODE_TAB, FullfudMod.MOD_ID);
 
-    private static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
-        DeferredRegister.create(Registries.CREATIVE_MODE_TAB, FullfudMod.MOD_ID);
+    public static final RegistryObject<CreativeModeTab> FULLFUD_TAB = CREATIVE_MODE_TABS.register("fullfud_tab",
+            () -> CreativeModeTab.builder()
+                    .title(Component.literal("Shaded war"))
+                    .icon(() -> new ItemStack(FullfudRegistries.SHAHED_ITEM.get()))
+                    .displayItems((pParameters, pOutput) -> {
+                        FullfudRegistries.ITEMS.getEntries().forEach(regObj -> {
+                            pOutput.accept(regObj.get());
+                        });
+                    })
+                    .build());
 
-    public static final RegistryObject<CreativeModeTab> FULLFUD = CREATIVE_TABS.register("main", () ->
-        CreativeModeTab.builder()
-            .title(Component.literal("Shaded war"))
-            .icon(() -> new ItemStack(FullfudRegistries.SHAHED_ITEM.get()))
-            .displayItems((parameters, output) ->
-                FullfudRegistries.ITEMS.getEntries().stream()
-                    .map(RegistryObject::get)
-                    .forEach(output::accept)
-            )
-            .build()
-    );
-
-    public static void register(final IEventBus modEventBus) {
-        CREATIVE_TABS.register(modEventBus);
+    public static void register(IEventBus eventBus) {
+        CREATIVE_MODE_TABS.register(eventBus);
     }
 }

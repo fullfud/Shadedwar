@@ -18,11 +18,15 @@ public class FpvDroneRenderer extends GeoEntityRenderer<FpvDroneEntity> {
     @Override
     public void render(final FpvDroneEntity entity, final float entityYaw, final float partialTick, final PoseStack poseStack, final MultiBufferSource bufferSource, final int packedLight) {
         poseStack.pushPose();
-        
+
+        poseStack.mulPose(Axis.YP.rotationDegrees(-entityYaw));
+
+        poseStack.mulPose(Axis.XP.rotationDegrees(entity.getVisualPitch(partialTick)));
+
         poseStack.mulPose(Axis.ZP.rotationDegrees(entity.getVisualRoll(partialTick)));
 
         poseStack.translate(0.0D, -0.05D, 0.0D);
-        
+
         super.render(entity, entityYaw, partialTick, poseStack, bufferSource, packedLight);
         poseStack.popPose();
     }

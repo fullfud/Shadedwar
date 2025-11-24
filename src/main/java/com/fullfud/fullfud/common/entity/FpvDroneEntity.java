@@ -21,7 +21,6 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
@@ -46,8 +45,6 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import software.bernie.geckolib.animatable.GeoEntity;
@@ -68,18 +65,19 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Float> DATA_THRUST = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Optional<UUID>> DATA_CONTROLLER = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.OPTIONAL_UUID);
+    private static final EntityDataAccessor<Integer> DATA_BATTERY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.INT);
     
     private static final EntityDimensions DRONE_SIZE = EntityDimensions.scalable(0.7F, 0.25F);
     private static final RawAnimation IDLE_ANIM = RawAnimation.begin().thenLoop("idle");
     private static final RawAnimation RUNNING_ANIM = RawAnimation.begin().thenLoop("running");
-    
-    private static final Logger LOG = LogManager.getLogger("FpvDrone");
     
     private static final double GRAVITY = 0.055D;
     private static final double AIR_DRAG = 0.96D; 
     private static final double MAX_THRUST = 0.12D;
     private static final double ROTATION_RATE_DEG = 5.0D;
     private static final double YAW_RATE_DEG = 4.0D;
+    
+    private static final int MAX_BATTERY_TICKS = 12000;
     
     private static final TicketType<Integer> FPV_TICKET = TicketType.create("fullfud_fpv", Integer::compareTo, 4);
     
@@ -89,6 +87,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_VELOCITY = "Velocity";
     private static final String TAG_OWNER = "Owner";
     private static final String TAG_CONTROLLER = "Controller";
+    private static final String TAG_BATTERY = "Battery";
     
     private static final String TAG_SESSION_DIM = "SessDim";
     private static final String TAG_SESSION_X = "SessX";
@@ -143,6 +142,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.entityData.define(DATA_THRUST, 0.0F);
         this.entityData.define(DATA_ROLL, 0.0F);
         this.entityData.define(DATA_CONTROLLER, Optional.empty());
+        this.entityData.define(DATA_BATTERY, MAX_BATTERY_TICKS);
     }
 
     @Override
@@ -152,6 +152,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         throttleOutput = targetThrottle;
         droneRoll = tag.getDouble(TAG_ROLL);
         droneRollO = droneRoll;
+        
+        if (tag.contains(TAG_BATTERY)) {
+            entityData.set(DATA_BATTERY, tag.getInt(TAG_BATTERY));
+        }
         
         updateQuaternionFromEuler();
         physicsInitialized = true;
@@ -188,6 +192,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         tag.putBoolean(TAG_ARMED, isArmed());
         tag.putFloat(TAG_THRUST, targetThrottle);
         tag.putDouble(TAG_ROLL, droneRoll);
+        tag.putInt(TAG_BATTERY, getBatteryTicks());
         
         Vec3 vel = getDeltaMovement();
         final ListTag velocityList = new ListTag();
@@ -247,6 +252,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!physicsInitialized) {
             updateQuaternionFromEuler();
             physicsInitialized = true;
+        }
+
+        if (isArmed()) {
+            int currentBat = getBatteryTicks();
+            if (currentBat > 0) {
+                int drain = 1 + (int)(throttleOutput * 3.0F);
+                entityData.set(DATA_BATTERY, Math.max(0, currentBat - drain));
+            }
         }
 
         if (entityData.get(DATA_CONTROLLER).isPresent()) {
@@ -342,6 +355,11 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         qRotation.transform(upVec);
 
         double thrustForce = throttleOutput * MAX_THRUST;
+        
+        if (getBatteryTicks() <= 0) {
+            thrustForce = 0;
+        }
+
         Vec3 thrustVec = new Vec3(upVec.x, upVec.y, upVec.z).scale(thrustForce);
 
         Vec3 motion = getDeltaMovement();
@@ -498,7 +516,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         targetThrottle = Mth.clamp(packet.throttle(), 0.0F, 1.0F);
         
         if (packet.armAction() == 1) {
-            setArmed(true);
+            if (getBatteryTicks() > 0) setArmed(true);
         } else if (packet.armAction() == 2) {
             setArmed(false);
             targetThrottle = 0.0F;
@@ -571,7 +589,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
     
     private boolean isSignalLostFor(final ServerPlayer p) {
-        return p == null || Math.sqrt(p.distanceToSqr(this)) > 10000.0D;
+        return p == null || Math.sqrt(p.distanceToSqr(this)) > 500.0D;
     }
 
     private void bindPlayer(final ServerPlayer player) {
@@ -696,6 +714,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     public float getThrust() {
         return entityData.get(DATA_THRUST);
     }
+    
+    public int getBatteryTicks() {
+        return entityData.get(DATA_BATTERY);
+    }
+    
+    public int getBatteryPercent() {
+        return (int) ((getBatteryTicks() / (float) MAX_BATTERY_TICKS) * 100);
+    }
 
     public UUID getControllerId() {
         return entityData.get(DATA_CONTROLLER).orElse(null);
@@ -730,7 +756,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     public float getVisualPitch(final float partialTick) {
-        return getXRot();
+        return (float) Mth.rotLerp(partialTick, this.xRotO, this.getXRot());
     }
 
     @Override
