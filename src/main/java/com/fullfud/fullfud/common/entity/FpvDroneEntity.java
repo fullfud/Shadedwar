@@ -231,21 +231,39 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     
     private void tickClient() {
         throttleOutput = entityData.get(DATA_THRUST);
-        double targetRoll = entityData.get(DATA_ROLL);
-        this.droneRoll = Mth.lerp(0.5F, this.droneRoll, targetRoll);
+        float targetRoll = entityData.get(DATA_ROLL);
         
         if (this.lerpSteps > 0) {
             double d0 = this.getX() + (this.lerpX - this.getX()) / (double) this.lerpSteps;
             double d1 = this.getY() + (this.lerpY - this.getY()) / (double) this.lerpSteps;
             double d2 = this.getZ() + (this.lerpZ - this.getZ()) / (double) this.lerpSteps;
-            double d3 = Mth.wrapDegrees(this.lerpYRot - (double) this.getYRot());
-            this.setYRot(this.getYRot() + (float) d3 / (float) this.lerpSteps);
-            double d4 = Mth.wrapDegrees(this.lerpXRot - (double) this.getXRot());
-            this.setXRot(this.getXRot() + (float) d4 / (float) this.lerpSteps);
-            this.lerpSteps--;
             this.setPos(d0, d1, d2);
-            this.setRot(this.getYRot(), this.getXRot());
+
+            float curY = (float) Math.toRadians(-this.getYRot());
+            float curX = (float) Math.toRadians(this.getXRot());
+            float curR = (float) Math.toRadians(this.droneRoll);
+            Quaternionf currentQ = new Quaternionf().rotationYXZ(curY, curX, curR);
+
+            float tarY = (float) Math.toRadians(-this.lerpYRot);
+            float tarX = (float) Math.toRadians(this.lerpXRot);
+            float tarR = (float) Math.toRadians(targetRoll);
+            Quaternionf targetQ = new Quaternionf().rotationYXZ(tarY, tarX, tarR);
+
+            currentQ.slerp(targetQ, 1.0F / (float) this.lerpSteps);
+
+            Vector3f euler = new Vector3f();
+            currentQ.getEulerAnglesYXZ(euler);
+
+            this.setYRot((float) Math.toDegrees(-euler.y));
+            this.setXRot((float) Math.toDegrees(euler.x));
+            this.droneRoll = (float) Math.toDegrees(euler.z);
+
+            this.lerpSteps--;
+        } else {
+            this.droneRoll = Mth.rotLerp(0.5F, (float)this.droneRoll, targetRoll);
         }
+        
+        this.setRot(this.getYRot(), this.getXRot());
     }
 
     private void tickServer() {
@@ -344,12 +362,13 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         float newPitch = (float) Math.toDegrees(euler.x);
         float newRoll = (float) Math.toDegrees(euler.z);
 
-        if (!Float.isNaN(newYaw)) this.setYRot(Mth.wrapDegrees(newYaw));
-        if (!Float.isNaN(newPitch)) this.setXRot(Mth.wrapDegrees(newPitch));
-        if (!Float.isNaN(newRoll)) this.droneRoll = Mth.wrapDegrees(newRoll);
+        if (Float.isNaN(newYaw)) newYaw = this.getYRot();
+        if (Float.isNaN(newPitch)) newPitch = this.getXRot();
+        if (Float.isNaN(newRoll)) newRoll = (float) this.droneRoll;
 
-        this.setYBodyRot(getYRot());
-        this.setYHeadRot(getYRot());
+        this.setYRot(Mth.wrapDegrees(newYaw));
+        this.setXRot(Mth.wrapDegrees(newPitch));
+        this.droneRoll = Mth.wrapDegrees(newRoll);
 
         Vector3f upVec = new Vector3f(0.0F, 1.0F, 0.0F);
         qRotation.transform(upVec);
