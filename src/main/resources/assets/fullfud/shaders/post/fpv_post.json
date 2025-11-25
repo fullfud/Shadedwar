@@ -8,7 +8,7 @@
       "intarget": "minecraft:main",
       "outtarget": "swap",
       "uniforms": [
-        { "name": "SignalQuality", "values": [ 1.0 ] }
+        { "name": "SignalQuality", "values": [ 0.0 ] }
       ]
     },
     {

@@ -9,6 +9,7 @@ import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.logging.LogUtils;
 import com.mojang.math.Axis;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -34,6 +35,7 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.lwjgl.glfw.GLFW;
+import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -41,6 +43,8 @@ import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
 public final class FpvClientHandler {
+    private static final Logger LOGGER = LogUtils.getLogger();
+
     private static final KeyMapping FPV_YAW_LEFT = new KeyMapping("key.fullfud.fpv_yaw_left", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_Q, "key.categories.fullfud");
     private static final KeyMapping FPV_YAW_RIGHT = new KeyMapping("key.fullfud.fpv_yaw_right", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_E, "key.categories.fullfud");
     private static final KeyMapping FPV_ARM = new KeyMapping("key.fullfud.fpv_arm", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.fullfud");
@@ -50,7 +54,7 @@ public final class FpvClientHandler {
 
     private static final ResourceLocation TEX_PRICEL = new ResourceLocation("fullfud", "textures/gui/hud/pricel.png");
     private static final ResourceLocation TEX_VERT = new ResourceLocation("fullfud", "textures/gui/hud/vert.png");
-    
+
     private static final ResourceLocation BATTERY_0 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a0.png");
     private static final ResourceLocation BATTERY_25 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a25.png");
     private static final ResourceLocation BATTERY_50 = new ResourceLocation("fullfud", "textures/gui/hud/battery/a50.png");
@@ -72,7 +76,13 @@ public final class FpvClientHandler {
     private static boolean escRequested;
     private static boolean releaseSent;
     private static double distanceToPilot;
-    private static boolean wasInFpv = false;
+
+    private static boolean inFpvMode = false;
+    private static PostChain fpvPostChain;
+    private static Field passesFieldCache;
+    private static int lastChainWidth = -1;
+    private static int lastChainHeight = -1;
+    private static float clientTime = 0.0F;
 
     private FpvClientHandler() {
     }
@@ -85,6 +95,7 @@ public final class FpvClientHandler {
     public static void onClientSetup(final FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onClientTick);
+            MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderTick);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onCameraAngles);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderGui);
         });
@@ -100,91 +111,169 @@ public final class FpvClientHandler {
         event.register(FPV_ARM);
     }
 
-    private static void onClientTick(final TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) {
+    private static void onRenderTick(final TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null || minecraft.player == null) {
+            if (inFpvMode) {
+                inFpvMode = false;
+                destroyFpvChain();
+            }
             return;
         }
+
+        boolean shouldFpv = false;
+        float signal = 1.0F;
+
+        if (minecraft.getCameraEntity() instanceof FpvDroneEntity drone) {
+            UUID controller = drone.getControllerId();
+            if (controller != null && controller.equals(minecraft.player.getUUID()) && hasLinkedGoggles(minecraft, drone)) {
+                shouldFpv = true;
+                signal = drone.getSignalQuality();
+            }
+        }
+
+        if (!shouldFpv) {
+            if (inFpvMode) {
+                inFpvMode = false;
+                destroyFpvChain();
+                LOGGER.info("[FPV] FPV post chain disabled");
+            }
+            return;
+        }
+
+        inFpvMode = true;
+        clientTime += event.renderTickTime * 0.02F;
+
+        ensureFpvChain(minecraft);
+        if (fpvPostChain != null) {
+            resizeFpvChainIfNeeded(minecraft);
+            updateShaderUniforms(signal);
+            try {
+                fpvPostChain.process(event.renderTickTime);
+            } catch (Exception e) {
+                LOGGER.info("[FPV] Error processing FPV post chain: {}", e.toString());
+            }
+        }
+    }
+
+    private static void ensureFpvChain(final Minecraft mc) {
+        if (fpvPostChain != null) return;
+        try {
+            fpvPostChain = new PostChain(mc.getTextureManager(), mc.getResourceManager(), mc.getMainRenderTarget(), SHADER_LOC);
+            lastChainWidth = mc.getWindow().getWidth();
+            lastChainHeight = mc.getWindow().getHeight();
+            fpvPostChain.resize(lastChainWidth, lastChainHeight);
+            passesFieldCache = null;
+            LOGGER.info("[FPV] Created FPV post chain {}", SHADER_LOC);
+        } catch (Exception e) {
+            fpvPostChain = null;
+            passesFieldCache = null;
+            LOGGER.info("[FPV] Failed to create FPV post chain: {}", e.toString());
+        }
+    }
+
+    private static void resizeFpvChainIfNeeded(final Minecraft mc) {
+        if (fpvPostChain == null) return;
+        int w = mc.getWindow().getWidth();
+        int h = mc.getWindow().getHeight();
+        if (w != lastChainWidth || h != lastChainHeight) {
+            lastChainWidth = w;
+            lastChainHeight = h;
+            try {
+                fpvPostChain.resize(w, h);
+                LOGGER.info("[FPV] Resized FPV post chain to {}x{}", w, h);
+            } catch (Exception e) {
+                LOGGER.info("[FPV] Error resizing FPV post chain: {}", e.toString());
+            }
+        }
+    }
+
+    private static void destroyFpvChain() {
+        if (fpvPostChain != null) {
+            try {
+                fpvPostChain.close();
+                LOGGER.info("[FPV] Destroyed FPV post chain {}", SHADER_LOC);
+            } catch (Exception e) {
+                LOGGER.info("[FPV] Error destroying FPV post chain: {}", e.toString());
+            }
+        }
+        fpvPostChain = null;
+        passesFieldCache = null;
+        lastChainWidth = -1;
+        lastChainHeight = -1;
+    }
+
+    private static void onClientTick(final TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null || minecraft.level == null) {
             resetState();
             return;
         }
-        
+
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) {
             resetState();
             return;
         }
-        
+
         final UUID controller = drone.getControllerId();
         if (controller == null || !controller.equals(minecraft.player.getUUID())) {
             resetState();
             return;
         }
-        
+
         if (!hasLinkedGoggles(minecraft, drone)) {
             if (!releaseSent) {
                 FullfudNetwork.getChannel().sendToServer(new FpvReleasePacket(drone.getUUID()));
                 releaseSent = true;
             }
-            resetState();
             return;
         } else {
             releaseSent = false;
-        }
-
-        if (!wasInFpv) {
-            try {
-                minecraft.gameRenderer.loadEffect(SHADER_LOC);
-                wasInFpv = true;
-            } catch (Exception e) {
-                wasInFpv = false;
-            }
-        }
-        
-        if (wasInFpv) {
-            updateShaderUniforms(minecraft, drone.getSignalQuality());
-        }
-        
-        if (minecraft.screen instanceof PauseScreen && !escRequested) {
-            escRequested = true;
-            FullfudNetwork.getChannel().sendToServer(new FpvReleasePacket(drone.getUUID()));
-            return;
-        } else if (!(minecraft.screen instanceof PauseScreen)) {
-            escRequested = false;
         }
 
         if (activeDrone == null || !activeDrone.equals(drone.getUUID())) {
             throttleDemand = drone.getThrust();
             activeDrone = drone.getUUID();
         }
-        
+
         Vec3 velocity = drone.getDeltaMovement();
         speedMs = velocity.length() * 20.0D;
         Vec3 horiz = new Vec3(velocity.x, 0, velocity.z);
         groundSpeedKmh = horiz.length() * 20.0D * 3.6D;
-        
+
         distanceToPilot = Math.sqrt(drone.distanceToSqr(minecraft.player));
 
         final float pitchInput = axis(minecraft.options.keyUp.isDown(), minecraft.options.keyDown.isDown());
         final float rollInput = axis(minecraft.options.keyLeft.isDown(), minecraft.options.keyRight.isDown());
         final float yawInput = axis(FPV_YAW_LEFT.isDown(), FPV_YAW_RIGHT.isDown());
         final float throttleDelta = axis(minecraft.options.keyJump.isDown(), minecraft.options.keyShift.isDown());
-        
+
         if (Math.abs(throttleDelta) > 0.001F) {
             throttleDemand = Mth.clamp(throttleDemand + throttleDelta * 0.02F, 0.0F, 1.0F);
         }
-        
+
         byte armAction = 0;
         if (FPV_ARM.consumeClick()) {
             armAction = drone.isArmed() ? (byte) 2 : (byte) 1;
         }
         FullfudNetwork.getChannel().sendToServer(new FpvControlPacket(drone.getUUID(), pitchInput, rollInput, yawInput, throttleDemand, armAction));
+
+        if (minecraft.screen instanceof PauseScreen && !escRequested) {
+            escRequested = true;
+            FullfudNetwork.getChannel().sendToServer(new FpvReleasePacket(drone.getUUID()));
+        } else if (!(minecraft.screen instanceof PauseScreen)) {
+            escRequested = false;
+        }
     }
-    
+
     private static void resetState() {
-        if (wasInFpv) {
-            Minecraft.getInstance().gameRenderer.shutdownEffect();
-            wasInFpv = false;
+        if (inFpvMode) {
+            inFpvMode = false;
+            destroyFpvChain();
         }
         activeDrone = null;
         throttleDemand = 0.0F;
@@ -194,25 +283,37 @@ public final class FpvClientHandler {
     }
 
     @SuppressWarnings("unchecked")
-    private static void updateShaderUniforms(final Minecraft mc, final float signalQuality) {
-        final PostChain chain = mc.gameRenderer.currentEffect();
-        if (chain != null) {
-            try {
-                // Использование рефлексии для доступа к приватному полю 'passes'
-                Field passesField = PostChain.class.getDeclaredField("passes");
-                passesField.setAccessible(true);
-                List<PostPass> passes = (List<PostPass>) passesField.get(chain);
-
-                for (final PostPass pass : passes) {
-                    // EffectInstance имеет метод getUniform напрямую
-                    final Uniform uniform = pass.getEffect().getUniform("SignalQuality");
-                    if (uniform != null) {
-                        uniform.set(signalQuality);
+    private static void updateShaderUniforms(final float signalQuality) {
+        if (fpvPostChain == null) return;
+        try {
+            if (passesFieldCache == null) {
+                for (Field f : PostChain.class.getDeclaredFields()) {
+                    if (List.class.isAssignableFrom(f.getType())) {
+                        f.setAccessible(true);
+                        Object obj = f.get(fpvPostChain);
+                        if (obj instanceof List<?> list && !list.isEmpty()) {
+                            if (list.get(0) instanceof PostPass) {
+                                passesFieldCache = f;
+                                LOGGER.info("[FPV] Cached passes field {}", f.getName());
+                                break;
+                            }
+                        }
                     }
                 }
-            } catch (Exception e) {
-                // Игнорируем ошибки рефлексии
             }
+
+            if (passesFieldCache != null) {
+                List<PostPass> passes = (List<PostPass>) passesFieldCache.get(fpvPostChain);
+                for (final PostPass pass : passes) {
+                    final Uniform signalU = pass.getEffect().getUniform("SignalQuality");
+                    if (signalU != null) signalU.set(signalQuality);
+
+                    final Uniform timeU = pass.getEffect().getUniform("Time");
+                    if (timeU != null) timeU.set(clientTime);
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.info("[FPV] Error updating shader uniforms: {}", e.toString());
         }
     }
 
@@ -234,9 +335,13 @@ public final class FpvClientHandler {
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;
-        
+
         final UUID controller = drone.getControllerId();
-        if (controller == null || !controller.equals(minecraft.player.getUUID()) || !hasLinkedGoggles(minecraft, drone)) {
+        if (controller == null || !controller.equals(minecraft.player.getUUID())) {
+            return;
+        }
+
+        if (!hasLinkedGoggles(minecraft, drone)) {
             return;
         }
 
@@ -244,11 +349,11 @@ public final class FpvClientHandler {
         final PoseStack pose = g.pose();
         final int w = minecraft.getWindow().getGuiScaledWidth();
         final int h = minecraft.getWindow().getGuiScaledHeight();
-        
-        Font font = minecraft.font; 
-        
+
+        Font font = minecraft.font;
+
         float quality = drone.getSignalQuality();
-        int rssi = (int)(quality * 100.0F);
+        int rssi = (int) (quality * 100.0F);
         int battery = drone.getBatteryPercent();
 
         int cx = w / 2;
@@ -262,24 +367,24 @@ public final class FpvClientHandler {
         pose.pushPose();
         pose.translate(cx, cy, 0);
         pose.mulPose(Axis.ZP.rotationDegrees(-roll));
-        
-        float pitchOffset = pitch * 2.5F; 
+
+        float pitchOffset = pitch * 2.5F;
         pose.translate(0, pitchOffset, 0);
-        
+
         pose.scale(2.0F, 2.0F, 1.0F);
         g.blit(TEX_VERT, -32, -2, 0, 0, 64, 4, 64, 4);
-        
+
         pose.popPose();
 
         ResourceLocation batTex = getBatteryTexture(battery);
         g.blit(batTex, 10, 10, 16, 32, 0, 0, 64, 128, 64, 128);
 
         ResourceLocation sigTex = getSignalTexture(rssi);
-        int sigW = 64; 
+        int sigW = 64;
         int sigH = 32;
-        int sigX = w - 10 - sigW; 
+        int sigX = w - 10 - sigW;
         g.blit(sigTex, sigX, 10, sigW, sigH, 0, 0, 128, 64, 128, 64);
-        
+
         MutableComponent acroText = Component.literal("ACRO").withStyle(DIGITAL_STYLE);
         int acroW = font.width(acroText);
         g.drawString(font, acroText, cx - acroW / 2, 45, 0xFFFFFFFF, true);
@@ -287,8 +392,8 @@ public final class FpvClientHandler {
         if (!drone.isArmed()) {
             MutableComponent disarmedText = Component.literal("D  I  S  A  R  M  E  D").withStyle(DIGITAL_STYLE);
             int dW = font.width(disarmedText);
-            int dY = (int)(h * 0.75f);
-            
+            int dY = (int) (h * 0.75f);
+
             g.drawString(font, disarmedText, cx - dW / 2, dY, 0xFFFFFFFF, true);
         }
 
@@ -299,7 +404,7 @@ public final class FpvClientHandler {
                 g.drawString(font, warning, cx - sw / 2, cy - 30, 0xFFFF0000, true);
             }
         }
-        
+
         MutableComponent batText = Component.literal(String.valueOf(battery)).withStyle(DIGITAL_STYLE);
         g.drawString(font, batText, 30, 22, 0xFFFFFFFF, true);
 
@@ -308,7 +413,7 @@ public final class FpvClientHandler {
         g.drawString(font, rssiText, sigX - rssiTextW - 5, 22, 0xFFFFFFFF, true);
 
         int botY = h - 10;
-        
+
         MutableComponent cZ = Component.literal(String.format("z = %.0f", drone.getZ())).withStyle(DIGITAL_STYLE);
         MutableComponent cY = Component.literal(String.format("y = %.0f", drone.getY())).withStyle(DIGITAL_STYLE);
         MutableComponent cX = Component.literal(String.format("x = %.0f", drone.getX())).withStyle(DIGITAL_STYLE);
@@ -317,7 +422,7 @@ public final class FpvClientHandler {
         g.drawString(font, cY, 10, botY - 10, 0xFFFFFFFF, true);
         g.drawString(font, cX, 10, botY - 20, 0xFFFFFFFF, true);
 
-        MutableComponent power = Component.literal(String.format("Power = %3d%%", (int)(drone.getThrust() * 100))).withStyle(DIGITAL_STYLE);
+        MutableComponent power = Component.literal(String.format("Power = %3d%%", (int) (drone.getThrust() * 100))).withStyle(DIGITAL_STYLE);
         MutableComponent ias = Component.literal(String.format("IAS = %.0f KM/h", speedMs * 3.6D)).withStyle(DIGITAL_STYLE);
         MutableComponent gs = Component.literal(String.format("GS = %.0f KM/h", groundSpeedKmh)).withStyle(DIGITAL_STYLE);
 
@@ -353,7 +458,7 @@ public final class FpvClientHandler {
             return false;
         }
         return com.fullfud.fullfud.common.item.FpvGogglesItem.getLinked(head)
-            .filter(id -> id.equals(drone.getUUID()))
-            .isPresent();
+                .filter(id -> id.equals(drone.getUUID()))
+                .isPresent();
     }
 }

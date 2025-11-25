@@ -14,54 +14,40 @@ float rand(vec2 co) {
 
 void main() {
     vec2 uv = texCoord;
-    
-    // Noise strength depends on signal quality (1.0 = good, 0.0 = bad)
-    float noiseFactor = clamp(1.0 - SignalQuality, 0.0, 1.0);
-    
-    // Glitch / Tear Effect
-    if (mod(Time, 2.0) > 1.9) {
-        uv.x += (cos(Time * 10.0 + uv.y * 1000.0) * 0.01) * noiseFactor;
-    }
-    
-    if (mod(Time, 5.0) > 3.75) {
-        vec2 noiseShift = 1.0 / 64.0 * (2.0 * vec2(rand(floor(uv * 32.0) + vec2(32.05, 236.0)), rand(floor(uv.y * 32.0) + vec2(-62.05, -36.0))) - 1.0);
-        uv += noiseShift * noiseFactor;
+
+    float dummy = InSize.x + InSize.y;
+    if (dummy <= 0.0) {
+        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
     }
 
-    // Fisheye Lens Effect
-    float PI = 3.1415926535;
-    float aperture = 178.0;
-    float apertureHalf = 0.5 * aperture * (PI / 180.0);
-    float maxFactor = sin(apertureHalf);
-    
-    vec2 xy = (2.0 * uv - 1.0) * 0.7;
+    vec2 xy = 2.0 * uv - 1.0;
     float d = length(xy);
-    
-    vec2 finalUV = uv;
-    
-    if (d < (2.0 - maxFactor)) {
-        d = length(xy * maxFactor);
-        float z = sqrt(1.0 - d * d);
-        float r = atan(d, z) / PI;
-        float phi = atan(xy.y, xy.x);
-        finalUV.x = r * cos(phi) + 0.5;
-        finalUV.y = r * sin(phi) + 0.5;
+    float r = d * 0.85;
+    vec2 distortedUV = 0.5 + (xy * (1.0 + r * r * 0.2)) * 0.5;
+
+    if (distortedUV.x <= 0.0 || distortedUV.x >= 1.0 || distortedUV.y <= 0.0 || distortedUV.y >= 1.0) {
+        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
     }
-    
-    vec4 col = texture(DiffuseSampler, finalUV);
-    
-    // Static / Snow Noise
-    float r = rand(vec2(Time, gl_FragCoord.y + gl_FragCoord.x)) - 0.5;
-    float g = rand(vec2(Time + 0.1, gl_FragCoord.y + gl_FragCoord.x)) - 0.5;
-    float b = rand(vec2(Time + 0.2, gl_FragCoord.y + gl_FragCoord.x)) - 0.5;
-    
-    col.rgb += vec3(r, g, b) * 0.6 * noiseFactor;
-    
-    // If signal is very weak, mix to heavy static
-    if (noiseFactor > 0.8) {
-        float heavyStatic = rand(vec2(Time * 5.0, gl_FragCoord.x * gl_FragCoord.y));
-        col.rgb = mix(col.rgb, vec3(heavyStatic), (noiseFactor - 0.8) * 5.0);
+
+    vec4 col = texture(DiffuseSampler, distortedUV);
+
+    float noiseFactor = clamp(1.0 - SignalQuality, 0.0, 1.0);
+    float grain = rand(vec2(Time * 50.0, uv.y * 100.0 + uv.x)) - 0.5;
+    col.rgb += grain * 0.08;
+
+    if (noiseFactor > 0.05) {
+        float staticNoise = rand(vec2(Time, gl_FragCoord.y * gl_FragCoord.x));
+        col.rgb = mix(col.rgb, vec3(staticNoise), noiseFactor * 0.9);
+
+        if (noiseFactor > 0.3 && mod(Time, 1.0) > 0.8) {
+            col.rgb += 0.2;
+        }
     }
-    
-    fragColor = col;
+
+    float vignette = 1.0 - smoothstep(0.5, 1.5, d);
+    col.rgb *= vignette;
+
+    fragColor = vec4(col.rgb, 1.0);
 }
