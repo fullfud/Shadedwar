@@ -21,5 +21,33 @@
         "attenuation_distance": 15
       }
     ]
+  },
+  "fpv.engine_start": {
+    "subtitle": "subtitles.fullfud.fpv.start",
+    "sounds": [
+      {
+        "name": "fullfud:fpv_start_full",
+        "attenuation_distance": 200
+      }
+    ]
+  },
+  "fpv.engine_loop": {
+    "subtitle": "subtitles.fullfud.fpv.loop",
+    "sounds": [
+      {
+        "name": "fullfud:fpv_engine_full",
+        "stream": true,
+        "attenuation_distance": 200
+      }
+    ]
+  },
+  "fpv.engine_stop": {
+    "subtitle": "subtitles.fullfud.fpv.stop",
+    "sounds": [
+      {
+        "name": "fullfud:fpv_stop_full",
+        "attenuation_distance": 200
+      }
+    ]
   }
 }

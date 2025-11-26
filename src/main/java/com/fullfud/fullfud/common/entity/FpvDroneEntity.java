@@ -130,6 +130,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private double lerpYRot;
     private double lerpXRot;
 
+    private boolean wasArmedClient = false;
+    private Object clientSoundInstance = null;
+
     public FpvDroneEntity(final EntityType<? extends FpvDroneEntity> type, final Level level) {
         super(type, level);
         this.noPhysics = false;
@@ -266,6 +269,34 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
         
         this.setRot(this.getYRot(), this.getXRot());
+        
+        boolean currentlyArmed = isArmed();
+        float currentThrust = getThrust();
+
+        if (currentlyArmed && !wasArmedClient) {
+            level().playLocalSound(getX(), getY(), getZ(), 
+                FullfudRegistries.FPV_ENGINE_START.get(), 
+                net.minecraft.sounds.SoundSource.NEUTRAL, 
+                1.0F, 1.0F, false);
+        }
+
+        if (!currentlyArmed && wasArmedClient) {
+            level().playLocalSound(getX(), getY(), getZ(), 
+                FullfudRegistries.FPV_ENGINE_STOP.get(), 
+                net.minecraft.sounds.SoundSource.NEUTRAL, 
+                1.0F, 1.0F, false);
+        }
+
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        if (currentlyArmed && currentThrust > 0.01F) {
+            if (clientSoundInstance == null || !mc.getSoundManager().isActive((com.fullfud.fullfud.client.sound.FpvEngineSoundInstance) clientSoundInstance)) {
+                 com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound = new com.fullfud.fullfud.client.sound.FpvEngineSoundInstance(this);
+                 mc.getSoundManager().play(sound);
+                 clientSoundInstance = sound;
+            }
+        }
+        
+        wasArmedClient = currentlyArmed;
     }
 
     private void tickServer() {
@@ -321,7 +352,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                     return;
                 }
             }
-
             List<Entity> collisions = level().getEntities(this, getBoundingBox().inflate(0.2D), e -> !e.isSpectator() && e.isPickable());
             for (Entity entity : collisions) {
                 if (avatar != null && entity == avatar) continue;

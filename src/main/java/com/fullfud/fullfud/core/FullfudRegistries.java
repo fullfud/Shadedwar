@@ -124,6 +124,16 @@ public final class FullfudRegistries {
         () -> SoundEvent.createVariableRangeEvent(resource("reb.static"))
     );
 
+    public static final RegistryObject<SoundEvent> FPV_ENGINE_START = SOUND_EVENTS.register("fpv.engine_start",
+        () -> SoundEvent.createVariableRangeEvent(resource("fpv.engine_start"))
+    );
+    public static final RegistryObject<SoundEvent> FPV_ENGINE_LOOP = SOUND_EVENTS.register("fpv.engine_loop",
+        () -> SoundEvent.createVariableRangeEvent(resource("fpv.engine_loop"))
+    );
+    public static final RegistryObject<SoundEvent> FPV_ENGINE_STOP = SOUND_EVENTS.register("fpv.engine_stop",
+        () -> SoundEvent.createVariableRangeEvent(resource("fpv.engine_stop"))
+    );
+
     public static void register(final IEventBus modEventBus) {
         ITEMS.register(modEventBus);
         ENTITY_TYPES.register(modEventBus);
