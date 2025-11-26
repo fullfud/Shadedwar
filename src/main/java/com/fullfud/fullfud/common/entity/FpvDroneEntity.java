@@ -296,14 +296,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 setArmed(false);
                 removeAvatar();
             } else {
-                if (tickCount % 10 == 0) {
+                if (tickCount % 5 == 0) {
                     calculateSignal(controller);
                 }
-
-                if (cameraPinned && isSignalLostFor(controller)) {
-                     forceReturnCamera(controller);
-                }
-                
                 controlTimeout--;
                 if (controlTimeout <= 0) {
                     endRemoteControl(controller);
@@ -338,51 +333,72 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
     
     private void calculateSignal(ServerPlayer controller) {
-        float signal = 1.0F;
-        double dist = Math.sqrt(this.distanceToSqr(controller));
+        Vec3 start = (session != null) ? session.origin.add(0, controller.getEyeHeight(), 0) : controller.getEyePosition();
+        Vec3 end = this.position().add(0, 0.25D, 0);
         
-        if (dist > 700.0D) {
-            signal = 0.0F;
+        double dist = Math.sqrt(this.position().distanceToSqr(start));
+        float currentSignal = 1.0F;
+        
+        if (dist > 600.0D) {
+            currentSignal = 0.0F;
         } else if (dist > 500.0D) {
-            signal = (float) (1.0D - (dist - 500.0D) / 200.0D);
+            currentSignal = 0.5F * (1.0F - (float)((dist - 500.0D) / 100.0D));
+        } else {
+            currentSignal = 1.0F - ((float)dist / 500.0F) * 0.5F;
         }
         
-        if (signal > 0.0F) {
-            Vec3 start = controller.getEyePosition();
-            Vec3 end = this.position().add(0, 0.1, 0);
-            Vec3 vec = end.subtract(start);
-            Vec3 dir = vec.normalize();
-            double length = vec.length();
-            int obstacles = 0;
-            double currentDist = 0;
-            Vec3 currentPos = start;
-
-            while (obstacles <= 15 && currentDist < length) {
-                ClipContext context = new ClipContext(currentPos, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, controller);
-                HitResult result = level().clip(context);
+        if (currentSignal > 0.0F) {
+            int obstacles = countObstacles(start, end);
+            
+            if (obstacles >= 15) {
+                currentSignal = 0.0F;
+            } else if (obstacles > 0) {
+                currentSignal *= (1.0F - (obstacles / 15.0F));
+            }
+        }
+        
+        if (currentSignal > 0.0F) {
+            List<RebEmitterEntity> rebs = level().getEntitiesOfClass(RebEmitterEntity.class, 
+                this.getBoundingBox().inflate(300.0D), 
+                e -> e.hasBattery() && e.hasFinishedStartup());
                 
-                if (result.getType() != HitResult.Type.MISS) {
-                    obstacles++;
-                    currentPos = result.getLocation().add(dir.scale(0.5D));
-                    currentDist = start.distanceTo(currentPos);
-                } else {
+            float maxJamming = 0.0F;
+            for (RebEmitterEntity reb : rebs) {
+                double d = Math.sqrt(this.distanceToSqr(reb));
+                if (d < 150.0D) {
+                    maxJamming = 1.0F;
                     break;
+                } else if (d < 300.0D) {
+                    float jam = 1.0F - (float)((d - 150.0D) / 150.0D);
+                    if (jam > maxJamming) maxJamming = jam;
                 }
             }
-            
-            if (obstacles > 10) {
-                signal = 0.0F;
-            }
-            
-            List<RebEmitterEntity> jammers = level().getEntitiesOfClass(RebEmitterEntity.class, this.getBoundingBox().inflate(100.0D), 
-                reb -> reb.hasBattery() && reb.hasFinishedStartup());
-                
-            if (!jammers.isEmpty()) {
-                signal *= 0.1F; 
-            }
+            currentSignal *= (1.0F - maxJamming);
         }
         
-        entityData.set(DATA_SIGNAL_QUALITY, signal);
+        entityData.set(DATA_SIGNAL_QUALITY, Math.max(0.0F, currentSignal));
+    }
+    
+    private int countObstacles(Vec3 start, Vec3 end) {
+        Vec3 vector = end.subtract(start);
+        double length = vector.length();
+        Vec3 dir = vector.normalize();
+        
+        double stepSize = 0.5D;
+        int steps = (int) (length / stepSize);
+        
+        int solidCount = 0;
+        BlockPos.MutableBlockPos mPos = new BlockPos.MutableBlockPos();
+        
+        for (int i = 0; i < steps; i++) {
+            Vec3 point = start.add(dir.scale(i * stepSize));
+            mPos.set(point.x, point.y, point.z);
+            
+            if (level().getBlockState(mPos).canOcclude()) {
+                solidCount++;
+            }
+        }
+        return solidCount / 2;
     }
     
     @Override
@@ -597,8 +613,13 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!isController(sender)) {
             return;
         }
-        controlTimeout = 20;
         
+        if (getSignalQuality() < 0.05F) {
+            controlTimeout = 20;
+            return;
+        }
+
+        controlTimeout = 20;
         inputPitch = packet.pitchInput();
         inputRoll = packet.rollInput();
         inputYaw = packet.yawInput();

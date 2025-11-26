@@ -397,11 +397,22 @@ public final class FpvClientHandler {
             g.drawString(font, disarmedText, cx - dW / 2, dY, 0xFFFFFFFF, true);
         }
 
-        if (rssi < 20) {
+        if (quality <= 0.05F) {
             if (System.currentTimeMillis() % 1000 < 500) {
-                MutableComponent warning = Component.literal("SIGNAL LOST").withStyle(DIGITAL_STYLE);
-                int sw = font.width(warning);
-                g.drawString(font, warning, cx - sw / 2, cy - 30, 0xFFFF0000, true);
+                MutableComponent text = Component.literal("CONNECTION LOST").withStyle(DIGITAL_STYLE);
+                int tw = font.width(text);
+                g.fill(cx - tw / 2 - 2, cy - 40 - 2, cx + tw / 2 + 2, cy - 40 + 10, 0xAA000000);
+                g.drawString(font, text, cx - tw / 2, cy - 40, 0xFFFF0000, true);
+            }
+        } else if (distanceToPilot > 500) {
+            MutableComponent text = Component.literal("MAX RANGE").withStyle(DIGITAL_STYLE);
+            int tw = font.width(text);
+            g.drawString(font, text, cx - tw / 2, cy - 40, 0xFFFF0000, true);
+        } else if (distanceToPilot > 450) {
+            if (System.currentTimeMillis() % 1000 < 500) {
+                MutableComponent text = Component.literal("TURN AROUND").withStyle(DIGITAL_STYLE);
+                int tw = font.width(text);
+                g.drawString(font, text, cx - tw / 2, cy - 40, 0xFFFFAA00, true);
             }
         }
 

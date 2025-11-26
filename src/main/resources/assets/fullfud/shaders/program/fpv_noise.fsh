@@ -33,17 +33,16 @@ void main() {
 
     vec4 col = texture(DiffuseSampler, distortedUV);
 
-    float noiseFactor = clamp(1.0 - SignalQuality, 0.0, 1.0);
     float grain = rand(vec2(Time * 50.0, uv.y * 100.0 + uv.x)) - 0.5;
     col.rgb += grain * 0.08;
 
-    if (noiseFactor > 0.05) {
-        float staticNoise = rand(vec2(Time, gl_FragCoord.y * gl_FragCoord.x));
-        col.rgb = mix(col.rgb, vec3(staticNoise), noiseFactor * 0.9);
-
-        if (noiseFactor > 0.3 && mod(Time, 1.0) > 0.8) {
-            col.rgb += 0.2;
-        }
+    float signalLoss = 1.0 - clamp(SignalQuality, 0.0, 1.0);
+    
+    if (signalLoss > 0.0) {
+        float heavyStatic = rand(vec2(Time * 100.0, distortedUV.y * 432.0 + distortedUV.x));
+        vec3 staticColor = vec3(heavyStatic);
+        
+        col.rgb = mix(col.rgb, staticColor, signalLoss);
     }
 
     float vignette = 1.0 - smoothstep(0.5, 1.5, d);
