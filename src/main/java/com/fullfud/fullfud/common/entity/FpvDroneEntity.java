@@ -26,7 +26,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.ClipContext;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -43,7 +42,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.level.GameType;
-import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
@@ -419,9 +417,13 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private void updateSimplePhysics() {
-        float pRad = (float) Math.toRadians(-inputPitch * ROTATION_RATE_DEG);
-        float rRad = (float) Math.toRadians(-inputRoll * ROTATION_RATE_DEG);
-        float yRad = (float) Math.toRadians(-inputYaw * YAW_RATE_DEG);
+        float pInputCurve = applyExpo(inputPitch, 0.4F);
+        float rInputCurve = applyExpo(inputRoll, 0.4F);
+        float yInputCurve = applyExpo(inputYaw, 0.4F);
+
+        float pRad = (float) Math.toRadians(-pInputCurve * ROTATION_RATE_DEG);
+        float rRad = (float) Math.toRadians(-rInputCurve * ROTATION_RATE_DEG);
+        float yRad = (float) Math.toRadians(-yInputCurve * YAW_RATE_DEG);
         
         if (!isArmed()) {
             pRad = 0;
@@ -473,6 +475,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         motion = motion.scale(AIR_DRAG); 
 
         setDeltaMovement(motion);
+    }
+
+    private float applyExpo(float input, float expo) {
+        return input * (Math.abs(input) * expo + (1.0F - expo));
     }
     
     private void ensureChunkTicket() {
