@@ -311,11 +311,20 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         Vec3 preMoveVelocity = getDeltaMovement();
         move(MoverType.SELF, preMoveVelocity);
         
-        if (isArmed() && (horizontalCollision || verticalCollision)) {
-            double hSpeed = Math.sqrt(preMoveVelocity.x * preMoveVelocity.x + preMoveVelocity.z * preMoveVelocity.z);
-            double limit = 0.5D; 
-            
-            if (hSpeed > limit) {
+        if (isArmed()) {
+            if (horizontalCollision || verticalCollision) {
+                double hSpeed = Math.sqrt(preMoveVelocity.x * preMoveVelocity.x + preMoveVelocity.z * preMoveVelocity.z);
+                double limit = 0.5D; 
+                
+                if (hSpeed > limit) {
+                    explode();
+                    return;
+                }
+            }
+
+            List<Entity> collisions = level().getEntities(this, getBoundingBox().inflate(0.2D), e -> !e.isSpectator() && e.isPickable());
+            for (Entity entity : collisions) {
+                if (avatar != null && entity == avatar) continue;
                 explode();
                 return;
             }

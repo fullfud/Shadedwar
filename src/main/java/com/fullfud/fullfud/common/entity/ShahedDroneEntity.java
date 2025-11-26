@@ -295,9 +295,17 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
         if (!level().isClientSide()) {
             updateLaunchState();
-            if (armed && detectImpact()) {
-                detonate();
-                return;
+            if (armed) {
+                if (detectImpact()) {
+                    detonate();
+                    return;
+                }
+                List<Entity> collisions = level().getEntities(this, getBoundingBox().inflate(0.3D), e -> !e.isSpectator() && e.isPickable());
+                for (Entity entity : collisions) {
+                    if (avatar != null && entity == avatar) continue;
+                    detonate();
+                    return;
+                }
             }
             final ServerPlayer cp = getControllingPlayer();
             if (cameraPinned && isSignalLostFor(cp)) {
