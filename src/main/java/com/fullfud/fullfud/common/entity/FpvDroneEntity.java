@@ -618,7 +618,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (level().isClientSide() || isRemoved()) {
             return false;
         }
-        if (isArmed()) {
+        if (isArmed() || source.getDirectEntity() instanceof net.minecraft.world.entity.projectile.Projectile) {
             explode();
             return true;
         }

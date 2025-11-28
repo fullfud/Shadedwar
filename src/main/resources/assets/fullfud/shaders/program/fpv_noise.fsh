@@ -45,6 +45,11 @@ void main() {
         col.rgb = mix(col.rgb, staticColor, signalLoss);
     }
 
+    vec2 screenFragCoord = uv * InSize;
+    vec4 mask = vec4(mod(screenFragCoord.x, 3.0) - 1.0, mod(screenFragCoord.x - 1.0, 3.0) - 1.0, mod(screenFragCoord.x - 2.0, 3.0) - 1.0, 1.0);
+    
+    col *= mask;
+
     float vignette = 1.0 - smoothstep(0.5, 1.5, d);
     col.rgb *= vignette;
 

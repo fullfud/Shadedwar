@@ -111,6 +111,7 @@ public final class FullfudRegistries {
     public static final RegistryObject<MenuType<ShahedMonitorMenu>> SHAHED_MONITOR_MENU = MENU_TYPES.register("shahed_monitor", () ->
         IForgeMenuType.create(ShahedMonitorMenu::new)
     );
+
     public static final RegistryObject<SoundEvent> SHAHED_ENGINE_START = SOUND_EVENTS.register("shahed.engine_start",
         () -> SoundEvent.createVariableRangeEvent(resource("shahed.engine_start"))
     );
