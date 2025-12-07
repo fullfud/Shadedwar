@@ -45,6 +45,8 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.api.distmarker.OnlyIn;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import software.bernie.geckolib.animatable.GeoEntity;
@@ -230,73 +232,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!level().isClientSide()) {
             tickServer();
         } else {
-            tickClient();
+            ClientSide.tick(this);
         }
-    }
-    
-    private void tickClient() {
-        throttleOutput = entityData.get(DATA_THRUST);
-        float targetRoll = entityData.get(DATA_ROLL);
-        
-        if (this.lerpSteps > 0) {
-            double d0 = this.getX() + (this.lerpX - this.getX()) / (double) this.lerpSteps;
-            double d1 = this.getY() + (this.lerpY - this.getY()) / (double) this.lerpSteps;
-            double d2 = this.getZ() + (this.lerpZ - this.getZ()) / (double) this.lerpSteps;
-            this.setPos(d0, d1, d2);
-
-            float curY = (float) Math.toRadians(-this.getYRot());
-            float curX = (float) Math.toRadians(this.getXRot());
-            float curR = (float) Math.toRadians(this.droneRoll);
-            Quaternionf currentQ = new Quaternionf().rotationYXZ(curY, curX, curR);
-
-            float tarY = (float) Math.toRadians(-this.lerpYRot);
-            float tarX = (float) Math.toRadians(this.lerpXRot);
-            float tarR = (float) Math.toRadians(targetRoll);
-            Quaternionf targetQ = new Quaternionf().rotationYXZ(tarY, tarX, tarR);
-
-            currentQ.slerp(targetQ, 1.0F / (float) this.lerpSteps);
-
-            Vector3f euler = new Vector3f();
-            currentQ.getEulerAnglesYXZ(euler);
-
-            this.setYRot((float) Math.toDegrees(-euler.y));
-            this.setXRot((float) Math.toDegrees(euler.x));
-            this.droneRoll = (float) Math.toDegrees(euler.z);
-
-            this.lerpSteps--;
-        } else {
-            this.droneRoll = Mth.rotLerp(0.5F, (float)this.droneRoll, targetRoll);
-        }
-        
-        this.setRot(this.getYRot(), this.getXRot());
-        
-        boolean currentlyArmed = isArmed();
-        float currentThrust = getThrust();
-
-        if (currentlyArmed && !wasArmedClient) {
-            level().playLocalSound(getX(), getY(), getZ(), 
-                FullfudRegistries.FPV_ENGINE_START.get(), 
-                net.minecraft.sounds.SoundSource.NEUTRAL, 
-                1.0F, 1.0F, false);
-        }
-
-        if (!currentlyArmed && wasArmedClient) {
-            level().playLocalSound(getX(), getY(), getZ(), 
-                FullfudRegistries.FPV_ENGINE_STOP.get(), 
-                net.minecraft.sounds.SoundSource.NEUTRAL, 
-                1.0F, 1.0F, false);
-        }
-
-        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-        if (currentlyArmed && currentThrust > 0.01F) {
-            if (clientSoundInstance == null || !mc.getSoundManager().isActive((com.fullfud.fullfud.client.sound.FpvEngineSoundInstance) clientSoundInstance)) {
-                 com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound = new com.fullfud.fullfud.client.sound.FpvEngineSoundInstance(this);
-                 mc.getSoundManager().play(sound);
-                 clientSoundInstance = sound;
-            }
-        }
-        
-        wasArmedClient = currentlyArmed;
     }
 
     private void tickServer() {
@@ -948,6 +885,74 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     @Override
     public AnimatableInstanceCache getAnimatableInstanceCache() {
         return animationCache;
+    }
+
+    @OnlyIn(Dist.CLIENT)
+    private static final class ClientSide {
+        private static void tick(final FpvDroneEntity drone) {
+            drone.throttleOutput = drone.entityData.get(DATA_THRUST);
+            final float targetRoll = drone.entityData.get(DATA_ROLL);
+
+            if (drone.lerpSteps > 0) {
+                final double d0 = drone.getX() + (drone.lerpX - drone.getX()) / (double) drone.lerpSteps;
+                final double d1 = drone.getY() + (drone.lerpY - drone.getY()) / (double) drone.lerpSteps;
+                final double d2 = drone.getZ() + (drone.lerpZ - drone.getZ()) / (double) drone.lerpSteps;
+                drone.setPos(d0, d1, d2);
+
+                final float curY = (float) Math.toRadians(-drone.getYRot());
+                final float curX = (float) Math.toRadians(drone.getXRot());
+                final float curR = (float) Math.toRadians(drone.droneRoll);
+                final Quaternionf currentQ = new Quaternionf().rotationYXZ(curY, curX, curR);
+
+                final float tarY = (float) Math.toRadians(-drone.lerpYRot);
+                final float tarX = (float) Math.toRadians(drone.lerpXRot);
+                final float tarR = (float) Math.toRadians(targetRoll);
+                final Quaternionf targetQ = new Quaternionf().rotationYXZ(tarY, tarX, tarR);
+
+                currentQ.slerp(targetQ, 1.0F / (float) drone.lerpSteps);
+
+                final Vector3f euler = new Vector3f();
+                currentQ.getEulerAnglesYXZ(euler);
+
+                drone.setYRot((float) Math.toDegrees(-euler.y));
+                drone.setXRot((float) Math.toDegrees(euler.x));
+                drone.droneRoll = (float) Math.toDegrees(euler.z);
+
+                drone.lerpSteps--;
+            } else {
+                drone.droneRoll = Mth.rotLerp(0.5F, (float) drone.droneRoll, targetRoll);
+            }
+
+            drone.setRot(drone.getYRot(), drone.getXRot());
+
+            final boolean currentlyArmed = drone.isArmed();
+            final float currentThrust = drone.getThrust();
+
+            if (currentlyArmed && !drone.wasArmedClient) {
+                drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
+                    FullfudRegistries.FPV_ENGINE_START.get(),
+                    net.minecraft.sounds.SoundSource.NEUTRAL,
+                    1.0F, 1.0F, false);
+            }
+
+            if (!currentlyArmed && drone.wasArmedClient) {
+                drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
+                    FullfudRegistries.FPV_ENGINE_STOP.get(),
+                    net.minecraft.sounds.SoundSource.NEUTRAL,
+                    1.0F, 1.0F, false);
+            }
+
+            final net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            if (currentlyArmed && currentThrust > 0.01F) {
+                if (drone.clientSoundInstance == null || !mc.getSoundManager().isActive((com.fullfud.fullfud.client.sound.FpvEngineSoundInstance) drone.clientSoundInstance)) {
+                    final com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound = new com.fullfud.fullfud.client.sound.FpvEngineSoundInstance(drone);
+                    mc.getSoundManager().play(sound);
+                    drone.clientSoundInstance = sound;
+                }
+            }
+
+            drone.wasArmedClient = currentlyArmed;
+        }
     }
 
     private record ControlSession(ResourceKey<Level> dimension, Vec3 origin, float yaw, float pitch, GameType gameType) { }
