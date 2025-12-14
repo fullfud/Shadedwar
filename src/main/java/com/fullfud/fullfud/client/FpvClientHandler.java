@@ -1,8 +1,10 @@
 package com.fullfud.fullfud.client;
 
 import com.fullfud.fullfud.client.render.FpvDroneRenderer;
+import com.fullfud.fullfud.client.input.FpvControllerInput;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
@@ -247,6 +249,10 @@ public final class FpvClientHandler {
             activeDrone = drone.getUUID();
         }
 
+        final boolean canProcessInput = minecraft.screen == null && minecraft.isWindowActive();
+
+        final FpvControllerInput.State controllerState = canProcessInput ? FpvControllerInput.poll() : new FpvControllerInput.State(false, 0, 0, 0, 0, false, false);
+
         double curX = minecraft.mouseHandler.xpos();
         double curY = minecraft.mouseHandler.ypos();
 
@@ -256,7 +262,7 @@ public final class FpvClientHandler {
             mouseInitialized = true;
         }
 
-        if (minecraft.screen == null && minecraft.isWindowActive()) {
+        if (canProcessInput) {
             double dx = curX - lastMouseX;
             double dy = curY - lastMouseY;
             
@@ -277,21 +283,37 @@ public final class FpvClientHandler {
         final float keyPitch = axis(minecraft.options.keyUp.isDown(), minecraft.options.keyDown.isDown());
         final float keyRoll = axis(minecraft.options.keyLeft.isDown(), minecraft.options.keyRight.isDown());
 
-        final float pitchInput = Mth.clamp(keyPitch + (float) mouseAccumY, -1.0F, 1.0F);
-        final float rollInput = Mth.clamp(keyRoll + (float) mouseAccumX, -1.0F, 1.0F);
+        float pitchInput = Mth.clamp(keyPitch + (float) mouseAccumY, -1.0F, 1.0F);
+        float rollInput = Mth.clamp(keyRoll + (float) mouseAccumX, -1.0F, 1.0F);
         
         mouseAccumX = 0;
         mouseAccumY = 0;
 
-        final float yawInput = axis(FPV_YAW_LEFT.isDown(), FPV_YAW_RIGHT.isDown());
+        float yawInput = axis(FPV_YAW_LEFT.isDown(), FPV_YAW_RIGHT.isDown());
         final float throttleDelta = axis(minecraft.options.keyJump.isDown(), minecraft.options.keyShift.isDown());
+
+        if (controllerState.present()) {
+            pitchInput = controllerState.pitch();
+            rollInput = controllerState.roll();
+            yawInput = controllerState.yaw();
+        }
 
         if (Math.abs(throttleDelta) > 0.001F) {
             throttleDemand = Mth.clamp(throttleDemand + throttleDelta * 0.02F, 0.0F, 1.0F);
         }
 
+        if (controllerState.present() && controllerState.hasThrottle()) {
+            final double slew = FullfudClientConfig.CLIENT.fpvControllerThrottleSlew.get();
+            final float a = (float) Mth.clamp(1.0D - slew, 0.0D, 1.0D);
+            throttleDemand = Mth.lerp(a, throttleDemand, Mth.clamp(controllerState.throttle(), 0.0F, 1.0F));
+        }
+
         byte armAction = 0;
         if (FPV_ARM.consumeClick()) {
+            armAction = drone.isArmed() ? (byte) 2 : (byte) 1;
+        }
+
+        if (controllerState.present() && controllerState.armClicked()) {
             armAction = drone.isArmed() ? (byte) 2 : (byte) 1;
         }
         

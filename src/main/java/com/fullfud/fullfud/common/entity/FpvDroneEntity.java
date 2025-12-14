@@ -79,6 +79,12 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final double MAX_THRUST = 0.12D;
     private static final double ROTATION_RATE_DEG = 5.0D;
     private static final double YAW_RATE_DEG = 4.0D;
+
+    private static final double TICK_SECONDS = 1.0D / 20.0D;
+    private static final double GRAVITY_ACCEL = GRAVITY * 400.0D; // blocks/sec^2 (from blocks/tick^2)
+    private static final double MAX_THRUST_ACCEL = MAX_THRUST * 400.0D; // blocks/sec^2 (from blocks/tick^2)
+    private static final double MAX_LINEAR_SPEED = 60.0D; // blocks/sec (prevents runaway at low drag)
+    private static final double ANGULAR_ACCEL_DEG_PER_SEC2 = 900.0D;
     
     private static final int MAX_BATTERY_TICKS = 12000;
     
@@ -111,9 +117,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private float inputPitch;
     private float inputRoll;
     private float inputYaw;
-    
+
     private double droneRoll;
     private double droneRollO;
+
+    private Vec3 linearVelocity = Vec3.ZERO; // blocks/sec
+    private float pitchRateRadPerSec;
+    private float rollRateRadPerSec;
+    private float yawRateRadPerSec;
 
     private int controlTimeout;
     private UUID owner;
@@ -173,6 +184,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 setDeltaMovement(list.getDouble(0), list.getDouble(1), list.getDouble(2));
             }
         }
+        linearVelocity = getDeltaMovement().scale(20.0D);
         if (tag.hasUUID(TAG_OWNER)) {
             owner = tag.getUUID(TAG_OWNER);
         }
@@ -240,6 +252,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!physicsInitialized) {
             updateQuaternionFromEuler();
             physicsInitialized = true;
+            linearVelocity = getDeltaMovement().scale(20.0D);
         }
 
         if (isArmed()) {
@@ -300,6 +313,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (onGround()) {
             setDeltaMovement(getDeltaMovement().multiply(0.5D, 0.5D, 0.5D));
         }
+
+        linearVelocity = getDeltaMovement().scale(20.0D);
         
         throttleOutput = Mth.lerp(0.2F, throttleOutput, targetThrottle);
         entityData.set(DATA_THRUST, throttleOutput);
@@ -393,25 +408,31 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private void updateSimplePhysics() {
+        final double dt = TICK_SECONDS;
         float pInputCurve = applyExpo(inputPitch, 0.4F);
         float rInputCurve = applyExpo(inputRoll, 0.4F);
         float yInputCurve = applyExpo(inputYaw, 0.4F);
 
-        float pRad = (float) Math.toRadians(-pInputCurve * ROTATION_RATE_DEG);
-        float rRad = (float) Math.toRadians(-rInputCurve * ROTATION_RATE_DEG);
-        float yRad = (float) Math.toRadians(-yInputCurve * YAW_RATE_DEG);
+        final float pitchTargetRadPerSec = (float) Math.toRadians(-pInputCurve * ROTATION_RATE_DEG * 20.0D);
+        final float rollTargetRadPerSec = (float) Math.toRadians(-rInputCurve * ROTATION_RATE_DEG * 20.0D);
+        final float yawTargetRadPerSec = (float) Math.toRadians(-yInputCurve * YAW_RATE_DEG * 20.0D);
         
         if (!isArmed()) {
-            pRad = 0;
-            rRad = 0;
-            yRad = 0;
+            pitchRateRadPerSec = 0.0F;
+            rollRateRadPerSec = 0.0F;
+            yawRateRadPerSec = 0.0F;
         }
 
-        if (Float.isNaN(pRad)) pRad = 0;
-        if (Float.isNaN(rRad)) rRad = 0;
-        if (Float.isNaN(yRad)) yRad = 0;
+        final float maxDelta = (float) (Math.toRadians(ANGULAR_ACCEL_DEG_PER_SEC2) * dt);
+        pitchRateRadPerSec = approach(pitchRateRadPerSec, Float.isFinite(pitchTargetRadPerSec) ? pitchTargetRadPerSec : 0.0F, maxDelta);
+        rollRateRadPerSec = approach(rollRateRadPerSec, Float.isFinite(rollTargetRadPerSec) ? rollTargetRadPerSec : 0.0F, maxDelta);
+        yawRateRadPerSec = approach(yawRateRadPerSec, Float.isFinite(yawTargetRadPerSec) ? yawTargetRadPerSec : 0.0F, maxDelta);
 
-        Quaternionf delta = new Quaternionf()
+        final float yRad = (float) (yawRateRadPerSec * dt);
+        final float pRad = (float) (pitchRateRadPerSec * dt);
+        final float rRad = (float) (rollRateRadPerSec * dt);
+
+        final Quaternionf delta = new Quaternionf()
             .rotateY(yRad)
             .rotateX(pRad)
             .rotateZ(rRad);
@@ -437,24 +458,36 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         Vector3f upVec = new Vector3f(0.0F, 1.0F, 0.0F);
         qRotation.transform(upVec);
 
-        double thrustForce = throttleOutput * MAX_THRUST;
+        double thrustAccel = throttleOutput * MAX_THRUST_ACCEL;
         
         if (getBatteryTicks() <= 0 || !isArmed()) {
-            thrustForce = 0;
+            thrustAccel = 0;
         }
 
-        Vec3 thrustVec = new Vec3(upVec.x, upVec.y, upVec.z).scale(thrustForce);
+        final Vec3 thrustVec = new Vec3(upVec.x, upVec.y, upVec.z).scale(thrustAccel);
 
-        Vec3 motion = getDeltaMovement();
-        motion = motion.add(thrustVec);
-        motion = motion.add(0, -GRAVITY, 0); 
-        motion = motion.scale(AIR_DRAG); 
+        Vec3 accel = thrustVec.add(0, -GRAVITY_ACCEL, 0);
 
-        setDeltaMovement(motion);
+        linearVelocity = linearVelocity.add(accel.scale(dt));
+        linearVelocity = linearVelocity.scale(AIR_DRAG);
+
+        final double speed = linearVelocity.length();
+        if (speed > MAX_LINEAR_SPEED) {
+            linearVelocity = linearVelocity.scale(MAX_LINEAR_SPEED / speed);
+        }
+
+        setDeltaMovement(linearVelocity.scale(dt));
     }
 
     private float applyExpo(float input, float expo) {
         return input * (Math.abs(input) * expo + (1.0F - expo));
+    }
+
+    private static float approach(final float current, final float target, final float maxDelta) {
+        final float delta = target - current;
+        if (delta > maxDelta) return current + maxDelta;
+        if (delta < -maxDelta) return current - maxDelta;
+        return target;
     }
     
     private void ensureChunkTicket() {
