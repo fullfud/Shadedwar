@@ -82,6 +82,10 @@ public record ShahedStatusPacket(UUID droneId,
 
     public void handle(final Supplier<NetworkEvent.Context> contextSupplier) {
         final NetworkEvent.Context context = contextSupplier.get();
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            context.setPacketHandled(true);
+            return;
+        }
         context.enqueueWork(() -> ShahedNetworkHandlers.handleStatus(this));
         context.setPacketHandled(true);
     }

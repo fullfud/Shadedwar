@@ -1,6 +1,7 @@
 package com.fullfud.fullfud.core.network.handler;
 
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
+import com.fullfud.fullfud.core.network.PacketRateLimiter;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
 import net.minecraft.server.level.ServerLevel;
@@ -12,6 +13,9 @@ public final class FpvNetworkHandlers {
 
     public static void handleControl(final FpvControlPacket packet, final ServerPlayer sender) {
         if (sender == null) {
+            return;
+        }
+        if (!PacketRateLimiter.allow(sender, "fpv_control", 4, 80)) {
             return;
         }
         final ServerLevel level = sender.serverLevel();
@@ -26,6 +30,9 @@ public final class FpvNetworkHandlers {
 
     public static void handleRelease(final FpvReleasePacket packet, final ServerPlayer sender) {
         if (sender == null) {
+            return;
+        }
+        if (!PacketRateLimiter.allow(sender, "fpv_release", 2, 20)) {
             return;
         }
         final ServerLevel level = sender.serverLevel();

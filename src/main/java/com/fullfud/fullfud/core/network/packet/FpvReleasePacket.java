@@ -18,6 +18,10 @@ public record FpvReleasePacket(UUID droneId) {
 
     public void handle(final Supplier<NetworkEvent.Context> contextSupplier) {
         final NetworkEvent.Context context = contextSupplier.get();
+        if (context.getSender() == null || !context.getDirection().getReceptionSide().isServer()) {
+            context.setPacketHandled(true);
+            return;
+        }
         context.enqueueWork(() -> FpvNetworkHandlers.handleRelease(this, context.getSender()));
         context.setPacketHandled(true);
     }

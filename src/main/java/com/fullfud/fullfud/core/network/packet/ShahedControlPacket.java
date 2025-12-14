@@ -28,6 +28,10 @@ public record ShahedControlPacket(UUID droneId, float forward, float strafe, flo
 
     public void handle(final Supplier<NetworkEvent.Context> contextSupplier) {
         final NetworkEvent.Context context = contextSupplier.get();
+        if (context.getSender() == null || !context.getDirection().getReceptionSide().isServer()) {
+            context.setPacketHandled(true);
+            return;
+        }
         context.enqueueWork(() -> ShahedNetworkHandlers.handleControl(this, context.getSender()));
         context.setPacketHandled(true);
     }

@@ -73,7 +73,7 @@ public final class FpvControllerInput {
 
         final float pitch = invert(rightY, FullfudClientConfig.CLIENT.fpvControllerInvertPitch.get());
         final float roll = invert(rightX, FullfudClientConfig.CLIENT.fpvControllerInvertRoll.get());
-        final float yaw = invert(leftX, FullfudClientConfig.CLIENT.fpvControllerInvertYaw.get());
+        final float yaw = invert(-leftX, FullfudClientConfig.CLIENT.fpvControllerInvertYaw.get());
 
         float throttleTarget = 0.0F;
         boolean hasThrottle = true;
@@ -161,4 +161,3 @@ public final class FpvControllerInput {
         return Mth.clamp((axisMinus1To1 + 1.0F) * 0.5F, 0.0F, 1.0F);
     }
 }
-

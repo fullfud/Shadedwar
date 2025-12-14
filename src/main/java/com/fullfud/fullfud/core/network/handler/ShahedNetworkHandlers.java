@@ -2,6 +2,7 @@ package com.fullfud.fullfud.core.network.handler;
 
 import com.fullfud.fullfud.client.ShahedClientHandler;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
+import com.fullfud.fullfud.core.network.PacketRateLimiter;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
@@ -16,6 +17,9 @@ public final class ShahedNetworkHandlers {
 
     public static void handleControl(final ShahedControlPacket packet, final ServerPlayer sender) {
         if (sender == null) {
+            return;
+        }
+        if (!PacketRateLimiter.allow(sender, "shahed_control", 4, 80)) {
             return;
         }
         final ServerLevel level = sender.serverLevel();

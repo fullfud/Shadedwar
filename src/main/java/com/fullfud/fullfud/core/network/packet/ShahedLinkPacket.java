@@ -22,6 +22,10 @@ public record ShahedLinkPacket(UUID droneId, boolean linked) {
 
     public void handle(final Supplier<NetworkEvent.Context> contextSupplier) {
         final NetworkEvent.Context context = contextSupplier.get();
+        if (!context.getDirection().getReceptionSide().isClient()) {
+            context.setPacketHandled(true);
+            return;
+        }
         context.enqueueWork(() -> ShahedNetworkHandlers.handleLinkUpdate(this, context.getSender()));
         context.setPacketHandled(true);
     }

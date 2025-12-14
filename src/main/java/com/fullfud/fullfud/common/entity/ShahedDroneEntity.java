@@ -6,6 +6,7 @@ import com.fullfud.fullfud.core.data.ShahedLinkData;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
+import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import net.minecraft.core.registries.Registries;
@@ -26,6 +27,7 @@ import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -76,6 +78,16 @@ import java.util.Set;
 import java.util.UUID;
 
 public class ShahedDroneEntity extends Entity implements GeoEntity {
+    public static final String PLAYER_REMOTE_TAG = "fullfud_shahed_remote";
+
+    private static final String PLAYER_TAG_DRONE = "Drone";
+    private static final String PLAYER_TAG_ORIGIN_DIM = "OriginDim";
+    private static final String PLAYER_TAG_ORIGIN_X = "OriginX";
+    private static final String PLAYER_TAG_ORIGIN_Y = "OriginY";
+    private static final String PLAYER_TAG_ORIGIN_Z = "OriginZ";
+    private static final String PLAYER_TAG_ORIGIN_YAW = "OriginYaw";
+    private static final String PLAYER_TAG_ORIGIN_PITCH = "OriginPitch";
+    private static final String PLAYER_TAG_ORIGIN_GM = "OriginGM";
     private static final EntityDataAccessor<Float> DATA_THRUST = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Integer> DATA_COLOR = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> DATA_ON_LAUNCHER = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.BOOLEAN);
@@ -733,8 +745,26 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     public void applyControl(final ShahedControlPacket packet, final ServerPlayer sender) {
-        if (!Float.isFinite(packet.thrustDelta())) {
+        if (sender == null || controllingPlayer == null || !controllingPlayer.equals(sender.getUUID())) {
+            return;
+        }
+        if (!isRemoteStateValidFor(sender)) {
+            return;
+        }
+        if (!(sender.containerMenu instanceof ShahedMonitorMenu menu)
+            || menu.getDroneId() == null
+            || !menu.getDroneId().equals(this.getUUID())) {
+            return;
+        }
+
+        if (packet.thrustDelta() == Float.NEGATIVE_INFINITY) {
             releaseCameraFor(sender);
+            return;
+        }
+        if (!Float.isFinite(packet.forward())
+            || !Float.isFinite(packet.strafe())
+            || !Float.isFinite(packet.vertical())
+            || !Float.isFinite(packet.thrustDelta())) {
             return;
         }
         if (!canReceiveControl()) {
@@ -744,8 +774,21 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.controlStrafe = Mth.clamp(packet.strafe(), -1.0F, 1.0F);
         this.controlVertical = Mth.clamp(packet.vertical(), -1.0F, 1.0F);
         this.controlTimeout = CONTROL_TIMEOUT_TICKS;
-        final float newThrust = Mth.clamp(getThrust() + packet.thrustDelta(), 0.0F, 1.0F);
+        final float thrustDelta = Mth.clamp(packet.thrustDelta(), -0.05F, 0.05F);
+        final float newThrust = Mth.clamp(getThrust() + thrustDelta, 0.0F, 1.0F);
         setThrust(newThrust);
+    }
+
+    private boolean isRemoteStateValidFor(final ServerPlayer sender) {
+        final CompoundTag root = sender.getPersistentData();
+        if (!root.contains(PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
+            return false;
+        }
+        final CompoundTag tag = root.getCompound(PLAYER_REMOTE_TAG);
+        if (!tag.hasUUID(PLAYER_TAG_DRONE)) {
+            return false;
+        }
+        return tag.getUUID(PLAYER_TAG_DRONE).equals(this.getUUID());
     }
 
     private boolean canReceiveControl() {
@@ -1172,6 +1215,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
 
+        if (!(player.containerMenu instanceof com.fullfud.fullfud.common.menu.ShahedMonitorMenu menu)
+            || menu.getDroneId() == null
+            || !menu.getDroneId().equals(this.getUUID())) {
+            endRemoteControl(player);
+            return;
+        }
+
         player.setInvisible(true);
         player.setSilent(true);
         player.setNoGravity(true);
@@ -1329,6 +1379,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             this.setXRot((float) bodyPitch);
         }
         controllingPlayer = player.getUUID();
+        writeRemoteTag(player);
         bindPlayerToDrone(player);
         player.connection.send(new ClientboundSetCameraPacket(this));
         cameraPinned = true;
@@ -1336,6 +1387,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     public void endRemoteControl(final ServerPlayer player) {
+        clearRemoteTag(player);
         if (controlSession == null) {
             player.setGameMode(GameType.SURVIVAL);
             player.setInvisible(false);
@@ -1417,13 +1469,107 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         removeAvatar();
     }
 
+    private void writeRemoteTag(final ServerPlayer player) {
+        if (player == null || controlSession == null) {
+            return;
+        }
+        final CompoundTag tag = new CompoundTag();
+        tag.putUUID(PLAYER_TAG_DRONE, this.getUUID());
+        tag.putString(PLAYER_TAG_ORIGIN_DIM, controlSession.originDimension.location().toString());
+        tag.putDouble(PLAYER_TAG_ORIGIN_X, controlSession.originPos.x);
+        tag.putDouble(PLAYER_TAG_ORIGIN_Y, controlSession.originPos.y);
+        tag.putDouble(PLAYER_TAG_ORIGIN_Z, controlSession.originPos.z);
+        tag.putFloat(PLAYER_TAG_ORIGIN_YAW, controlSession.originYaw);
+        tag.putFloat(PLAYER_TAG_ORIGIN_PITCH, controlSession.originPitch);
+        if (controlSession.originalGameType != null) {
+            tag.putInt(PLAYER_TAG_ORIGIN_GM, controlSession.originalGameType.getId());
+        }
+        player.getPersistentData().put(PLAYER_REMOTE_TAG, tag);
+    }
+
+    private static void clearRemoteTag(final ServerPlayer player) {
+        if (player == null) {
+            return;
+        }
+        player.getPersistentData().remove(PLAYER_REMOTE_TAG);
+    }
+
+    public void forceReleaseControlFor(final UUID playerId) {
+        if (playerId == null || controllingPlayer == null || !controllingPlayer.equals(playerId)) {
+            return;
+        }
+        controllingPlayer = null;
+        controlSession = null;
+        cameraPinned = false;
+        removeAvatar();
+    }
+
+    public static void forceReleaseFromPersistentData(final MinecraftServer server, final UUID playerId, final CompoundTag tag) {
+        if (server == null || playerId == null || tag == null || !tag.hasUUID(PLAYER_TAG_DRONE)) {
+            return;
+        }
+        final UUID droneId = tag.getUUID(PLAYER_TAG_DRONE);
+        for (final ServerLevel level : server.getAllLevels()) {
+            final Entity entity = level.getEntity(droneId);
+            if (entity instanceof ShahedDroneEntity drone) {
+                drone.forceReleaseControlFor(playerId);
+                return;
+            }
+        }
+    }
+
+    public static void forceRestoreFromPersistentData(final ServerPlayer player, final CompoundTag tag) {
+        if (player == null || player.getServer() == null || tag == null) {
+            return;
+        }
+
+        forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
+
+        if (player.connection != null) {
+            player.connection.send(new ClientboundSetCameraPacket(player));
+        }
+
+        player.setInvisible(false);
+        player.setSilent(false);
+        player.setNoGravity(false);
+        player.noPhysics = false;
+        player.setDeltaMovement(Vec3.ZERO);
+
+        final GameType original = tag.contains(PLAYER_TAG_ORIGIN_GM, Tag.TAG_INT)
+            ? GameType.byId(tag.getInt(PLAYER_TAG_ORIGIN_GM))
+            : null;
+        player.setGameMode(original != null ? original : GameType.SURVIVAL);
+
+        if (tag.contains(PLAYER_TAG_ORIGIN_DIM, Tag.TAG_STRING)
+            && tag.contains(PLAYER_TAG_ORIGIN_X, Tag.TAG_DOUBLE)
+            && tag.contains(PLAYER_TAG_ORIGIN_Y, Tag.TAG_DOUBLE)
+            && tag.contains(PLAYER_TAG_ORIGIN_Z, Tag.TAG_DOUBLE)) {
+                final ResourceLocation dimId = ResourceLocation.tryParse(tag.getString(PLAYER_TAG_ORIGIN_DIM));
+            if (dimId != null) {
+                final ResourceKey<Level> dimKey = ResourceKey.create(Registries.DIMENSION, dimId);
+                final ServerLevel originLevel = player.getServer().getLevel(dimKey);
+                if (originLevel != null) {
+                    final Vec3 pos = new Vec3(tag.getDouble(PLAYER_TAG_ORIGIN_X), tag.getDouble(PLAYER_TAG_ORIGIN_Y), tag.getDouble(PLAYER_TAG_ORIGIN_Z));
+                    final float yaw = tag.contains(PLAYER_TAG_ORIGIN_YAW, Tag.TAG_FLOAT) ? tag.getFloat(PLAYER_TAG_ORIGIN_YAW) : player.getYRot();
+                    final float pitch = tag.contains(PLAYER_TAG_ORIGIN_PITCH, Tag.TAG_FLOAT) ? tag.getFloat(PLAYER_TAG_ORIGIN_PITCH) : player.getXRot();
+
+                    final ChunkPos chunkPos = new ChunkPos(net.minecraft.core.BlockPos.containing(pos));
+                    originLevel.getChunkSource().addRegionTicket(TicketType.POST_TELEPORT, chunkPos, 1, player.getId());
+                    player.teleportTo(originLevel, pos.x, pos.y, pos.z, Mth.wrapDegrees(yaw), Mth.wrapDegrees(pitch));
+                }
+            }
+        }
+
+        player.onUpdateAbilities();
+    }
+
     private void spawnAvatar(final ServerPlayer player) {
         if (!(level() instanceof ServerLevel serverLevel) || controlSession == null) {
             return;
         }
         removeAvatar();
 
-        GameProfile profile = new GameProfile(UUID.randomUUID(), player.getGameProfile().getName());
+        GameProfile profile = new GameProfile(UUID.randomUUID(), makeAvatarProfileName(player.getGameProfile().getName(), "_uav"));
         player.getGameProfile().getProperties().forEach((name, prop) -> {
             profile.getProperties().put(name, new Property(prop.getName(), prop.getValue(), prop.getSignature()));
         });
@@ -1440,6 +1586,24 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         avatar.setCustomNameVisible(true);
         broadcastAvatarInfo(true);
         serverLevel.addFreshEntity(avatar);
+    }
+
+    private static String makeAvatarProfileName(final String baseName, final String suffix) {
+        String base = (baseName == null || baseName.isBlank()) ? "Player" : baseName;
+        String suf = (suffix == null) ? "" : suffix;
+
+        final int max = 16;
+        if (suf.length() > max) {
+            suf = suf.substring(0, max);
+        }
+        final int baseMax = max - suf.length();
+        if (baseMax <= 0) {
+            return suf.substring(0, max);
+        }
+        if (base.length() > baseMax) {
+            base = base.substring(0, baseMax);
+        }
+        return base + suf;
     }
 
     private void syncAvatar(final ServerPlayer player) {
