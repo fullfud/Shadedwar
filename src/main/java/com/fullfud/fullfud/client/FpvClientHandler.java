@@ -14,6 +14,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.logging.LogUtils;
 import com.mojang.math.Axis;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -87,6 +88,8 @@ public final class FpvClientHandler {
     private static final double MOUSE_SENSITIVITY = 0.015D;
 
     private static boolean inFpvMode = false;
+    private static CameraType previousCameraType;
+    private static boolean forcedFirstPerson;
     private static PostChain fpvPostChain;
     private static Field passesFieldCache;
     private static int lastChainWidth = -1;
@@ -244,6 +247,7 @@ public final class FpvClientHandler {
             releaseSent = false;
         }
 
+        ensureFirstPerson(minecraft);
         suppressSpectatorHotbarKeys(minecraft);
 
         if (activeDrone == null || !activeDrone.equals(drone.getUUID())) {
@@ -345,7 +349,37 @@ public final class FpvClientHandler {
         }
     }
 
+    private static void ensureFirstPerson(final Minecraft minecraft) {
+        if (minecraft == null || minecraft.options == null) {
+            return;
+        }
+        if (forcedFirstPerson) {
+            return;
+        }
+        previousCameraType = minecraft.options.getCameraType();
+        minecraft.options.setCameraType(CameraType.FIRST_PERSON);
+        forcedFirstPerson = true;
+    }
+
+    private static void restoreCameraType() {
+        if (!forcedFirstPerson) {
+            return;
+        }
+        forcedFirstPerson = false;
+        final CameraType restore = previousCameraType;
+        previousCameraType = null;
+
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.options == null) {
+            return;
+        }
+        if (restore != null) {
+            minecraft.options.setCameraType(restore);
+        }
+    }
+
     private static void resetState() {
+        restoreCameraType();
         if (inFpvMode) {
             inFpvMode = false;
             destroyFpvChain();
