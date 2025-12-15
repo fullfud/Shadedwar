@@ -12,6 +12,7 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 public class FpvEngineSoundInstance extends AbstractTickableSoundInstance {
     private final FpvDroneEntity drone;
+    private static final float VOLUME_MULT = 0.2F;
 
     public FpvEngineSoundInstance(final FpvDroneEntity drone) {
         super(FullfudRegistries.FPV_ENGINE_LOOP.get(), SoundSource.NEUTRAL, SoundInstance.createUnseededRandom());
@@ -40,14 +41,17 @@ public class FpvEngineSoundInstance extends AbstractTickableSoundInstance {
         final float thrust = this.drone.getThrust();
         final boolean isArmed = this.drone.isArmed();
 
+        float baseVolume;
         if (isArmed && thrust > 0.05F) {
-            this.volume = Mth.lerp(0.1F, this.volume, 1.0F);
+            baseVolume = Mth.lerp(0.1F, this.volume / VOLUME_MULT, 1.0F);
             this.pitch = 0.8F + thrust * 0.7F;
         } else {
-            this.volume = Mth.lerp(0.15F, this.volume, 0.0F);
+            baseVolume = Mth.lerp(0.15F, this.volume / VOLUME_MULT, 0.0F);
         }
 
-        if (this.volume < 0.01F && !isArmed) {
+        this.volume = baseVolume * VOLUME_MULT;
+
+        if (baseVolume < 0.01F && !isArmed) {
             this.stop();
         }
     }

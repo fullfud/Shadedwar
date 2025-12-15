@@ -5,6 +5,8 @@ import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.data.ShahedLinkData;
 import com.fullfud.fullfud.core.network.FakePlayerNettyChannelFix;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
+import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
+import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
 import com.fullfud.fullfud.core.network.packet.RemoteAvatarVisibilityPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
@@ -59,6 +61,9 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.level.ClipContext;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
 import net.minecraftforge.network.PacketDistributor;
@@ -182,6 +187,15 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private UUID controllingPlayer;
     private ControlSession controlSession;
     private RemotePilotFakePlayer avatar;
+
+    private boolean lastEngineActiveAudio;
+    private float lastThrustAudio;
+
+    private static final byte AUDIO_TYPE_SHAHED = 1;
+    private static final byte AUDIO_KIND_START = 1;
+    private static final byte AUDIO_KIND_STOP = 2;
+    private static final float ENGINE_ACTIVE_THRESHOLD = 0.02F;
+    private static final double SHAHED_AUDIO_RANGE_BLOCKS = 800.0D;
     private double fuelMass = FUEL_CAPACITY_KG;
     private FlightTelemetry telemetry = FlightTelemetry.ZERO;
     private double bodyYaw;
@@ -327,10 +341,102 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             }
             ensureChunkTicket();
             updateControllerBinding();
+            broadcastEngineAudio();
             if (tickCount % STATUS_INTERVAL == 0) {
                 broadcastStatus();
             }
         }
+    }
+
+    private void broadcastEngineAudio() {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        if (tickCount % 4 != 0) {
+            return;
+        }
+
+        final float thrust = Mth.clamp(getThrust(), 0.0F, 1.0F);
+        final boolean engineActive = armed;
+
+        final double range = SHAHED_AUDIO_RANGE_BLOCKS;
+        final double rangeSqr = range * range;
+
+        if (engineActive != lastEngineActiveAudio) {
+            final byte kind = engineActive ? AUDIO_KIND_START : AUDIO_KIND_STOP;
+            final float strength = engineActive ? thrust : lastThrustAudio;
+            for (final ServerPlayer player : serverLevel.players()) {
+                final boolean controlling = controllingPlayer != null && controllingPlayer.equals(player.getUUID());
+                final double distSqr = controlling ? 0.0D : player.distanceToSqr(this);
+                if (!controlling && distSqr > rangeSqr) {
+                    continue;
+                }
+                final float distanceFactor = distanceFactor(distSqr, range, 1.4D);
+                float volume = (0.25F + 0.75F * strength) * distanceFactor;
+                if (!controlling && isOccluded(serverLevel, player)) {
+                    volume *= 0.45F;
+                }
+                if (volume <= 0.001F) {
+                    continue;
+                }
+                final float pitch = 0.9F + 0.2F * strength;
+                FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> player),
+                    new DroneAudioOneShotPacket(AUDIO_TYPE_SHAHED, kind, getUUID(), getX(), getY(), getZ(), volume, pitch));
+            }
+        }
+
+        if (engineActive) {
+            final Vec3 motion = getDeltaMovement();
+            final double speed = motion.length();
+            final float speedFactor = (float) Mth.clamp(speed / 1.8D, 0.0D, 1.0D);
+            final float flightVolumeMult = 1.0F + speedFactor * 0.35F;
+            final float pitch = 0.85F + thrust * 0.35F + speedFactor * 0.12F;
+            final float base = (0.3F + thrust * 0.7F) * flightVolumeMult;
+
+            for (final ServerPlayer player : serverLevel.players()) {
+                final boolean controlling = controllingPlayer != null && controllingPlayer.equals(player.getUUID());
+                final double distSqr = controlling ? 0.0D : player.distanceToSqr(this);
+                if (!controlling && distSqr > rangeSqr) {
+                    continue;
+                }
+                final float distanceFactor = distanceFactor(distSqr, range, 1.4D);
+                float volume = base * distanceFactor;
+                if (!controlling && isOccluded(serverLevel, player)) {
+                    volume *= 0.45F;
+                }
+                FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> player),
+                    new DroneAudioLoopPacket(AUDIO_TYPE_SHAHED, getUUID(), getX(), getY(), getZ(), volume, pitch, true));
+            }
+        } else if (lastEngineActiveAudio) {
+            for (final ServerPlayer player : serverLevel.players()) {
+                final boolean controlling = controllingPlayer != null && controllingPlayer.equals(player.getUUID());
+                final double distSqr = controlling ? 0.0D : player.distanceToSqr(this);
+                if (!controlling && distSqr > rangeSqr) {
+                    continue;
+                }
+                FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> player),
+                    new DroneAudioLoopPacket(AUDIO_TYPE_SHAHED, getUUID(), getX(), getY(), getZ(), 0.0F, 1.0F, false));
+            }
+        }
+
+        lastEngineActiveAudio = engineActive;
+        lastThrustAudio = thrust;
+    }
+
+    private static float distanceFactor(final double distSqr, final double range, final double exponent) {
+        final double dist = Math.sqrt(Math.max(0.0D, distSqr));
+        final double norm = Mth.clamp(dist / range, 0.0D, 1.0D);
+        return (float) Math.pow(1.0D - norm, exponent);
+    }
+
+    private boolean isOccluded(final ServerLevel level, final ServerPlayer player) {
+        if (level == null || player == null) {
+            return false;
+        }
+        final Vec3 from = position().add(0.0D, 0.75D, 0.0D);
+        final Vec3 to = player.position().add(0.0D, player.getEyeHeight(), 0.0D);
+        final BlockHitResult result = level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+        return result.getType() != HitResult.Type.MISS;
     }
 
     @Override

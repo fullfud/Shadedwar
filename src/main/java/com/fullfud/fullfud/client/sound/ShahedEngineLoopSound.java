@@ -60,8 +60,8 @@ public class ShahedEngineLoopSound extends AbstractTickableSoundInstance {
 
         float distanceFactor = 1.0F;
         final Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft != null && minecraft.player != null) {
-            final double dist = minecraft.player.distanceTo(drone);
+        if (minecraft != null && minecraft.getCameraEntity() != null) {
+            final double dist = minecraft.getCameraEntity().distanceTo(drone);
             final double norm = Mth.clamp(dist / 700.0D, 0.0D, 1.0D);
             distanceFactor = (float) Math.pow(1.0D - norm, 1.4D);
         }

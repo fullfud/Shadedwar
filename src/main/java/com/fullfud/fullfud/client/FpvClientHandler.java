@@ -244,6 +244,8 @@ public final class FpvClientHandler {
             releaseSent = false;
         }
 
+        suppressSpectatorHotbarKeys(minecraft);
+
         if (activeDrone == null || !activeDrone.equals(drone.getUUID())) {
             throttleDemand = drone.getThrust();
             activeDrone = drone.getUUID();
@@ -324,6 +326,22 @@ public final class FpvClientHandler {
             FullfudNetwork.getChannel().sendToServer(new FpvReleasePacket(drone.getUUID()));
         } else if (!(minecraft.screen instanceof PauseScreen)) {
             escRequested = false;
+        }
+    }
+
+    private static void suppressSpectatorHotbarKeys(final Minecraft minecraft) {
+        if (minecraft == null || minecraft.options == null) {
+            return;
+        }
+        for (int i = 0; i < 9; i++) {
+            final KeyMapping mapping = minecraft.options.keyHotbarSlots[i];
+            if (mapping == null) {
+                continue;
+            }
+            mapping.setDown(false);
+            while (mapping.consumeClick()) {
+                // drain queued presses
+            }
         }
     }
 

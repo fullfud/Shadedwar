@@ -3,11 +3,56 @@ plugins {
     id "net.minecraftforge.gradle" version "6.0.+"
 }
 
-version = "1.0.0"
 group = "com.fullfud"
 
 base {
     archivesName = "shadedwar"
+}
+
+def buildNumberFile = file("build_number.properties")
+def readBuildNumber = {
+    if (!buildNumberFile.exists()) {
+        return 0
+    }
+    def text = buildNumberFile.getText("UTF-8")
+    def m = (text =~ /(?m)^buildNumber\s*=\s*(\d+)\s*$/)
+    if (m.find()) {
+        return Integer.parseInt(m.group(1))
+    }
+    return 0
+}
+def writeBuildNumber = { int n ->
+    buildNumberFile.write("buildNumber=${n}\n", "UTF-8")
+}
+
+def baseVersion = (findProperty("mod_base_version") ?: "2.0.0").toString()
+def channel = (findProperty("mod_channel") ?: "BETA").toString()
+def buildNumber = readBuildNumber()
+version = "${baseVersion}-${channel}.${buildNumber}"
+
+def bumpTaskNames = ["build", "assemble", "jar", "reobfJar"] as Set
+def debugVersion = (findProperty("debugVersion") ?: "false").toString().toBoolean()
+gradle.taskGraph.whenReady { graph ->
+    if (debugVersion) {
+        println("[FULLFUD] taskGraph=" + graph.allTasks.collect { it.path }.join(", "))
+        println("[FULLFUD] buildNumberFile=" + buildNumberFile.absolutePath + " exists=" + buildNumberFile.exists())
+        if (buildNumberFile.exists()) {
+            println("[FULLFUD] buildNumberFileContents=" + buildNumberFile.getText("UTF-8").replace("\r", "\\r").replace("\n", "\\n"))
+        }
+    }
+    if (!graph.allTasks.any { bumpTaskNames.contains(it.name) }) {
+        if (debugVersion) {
+            println("[FULLFUD] build number not bumped (no bump tasks present)")
+        }
+        return
+    }
+
+    buildNumber = readBuildNumber() + 1
+    writeBuildNumber(buildNumber)
+    project.version = "${baseVersion}-${channel}.${buildNumber}"
+    if (debugVersion) {
+        println("[FULLFUD] bumped buildNumber=" + buildNumber + " version=" + project.version)
+    }
 }
 
 java {
@@ -76,22 +121,25 @@ tasks.withType(JavaCompile).configureEach {
 }
 
 jar {
+    archiveVersion.set(providers.provider { project.version.toString() })
     manifest {
-        attributes(["Specification-Title": "shadedwar",
-                    "Specification-Vendor": "fullfud",
-                    "Specification-Version": "${project.version}",
-                    "Implementation-Title": project.name,
-                    "Implementation-Version": project.version,
-                    "Implementation-Vendor": "fullfud" ] )
+        attributes([
+            "Specification-Title": "shadedwar",
+            "Specification-Vendor": "fullfud",
+            "Specification-Version": "${-> project.version}",
+            "Implementation-Title": project.name,
+            "Implementation-Version": "${-> project.version}",
+            "Implementation-Vendor": "fullfud"
+        ])
     }
 }
 
 jar.finalizedBy("reobfJar")
 
 processResources {
-    inputs.property "version", project.version
+    inputs.property "version", providers.provider { project.version.toString() }
     filesMatching("META-INF/mods.toml") {
-        expand(["version": project.version])
+        expand(["version": "${-> project.version}"])
     }
 }
 

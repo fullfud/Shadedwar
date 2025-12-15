@@ -173,6 +173,91 @@ public final class ShahedClientHandler {
         REB_NOISE.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
     }
 
+    private static final class EngineAudioController {
+        private static final float ACTIVE_THRESHOLD = 0.02F;
+        private final ShahedDroneEntity drone;
+        private ShahedEngineLoopSound loopSound;
+        private float lastThrust;
+
+        private boolean seen;
+
+        private EngineAudioController(final ShahedDroneEntity drone) {
+            this.drone = drone;
+        }
+
+        private boolean isInvalid() {
+            return drone.isRemoved() || !drone.isAlive();
+        }
+
+        private void stop() {
+            if (loopSound != null) {
+                loopSound.stopSound();
+                loopSound = null;
+            }
+        }
+
+        private void updateFromEntity() {
+            seen = true;
+            update(drone.getThrust());
+        }
+
+        private void update(final float thrust) {
+            final Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft == null || minecraft.level == null) {
+                return;
+            }
+            if (isInvalid()) {
+                stop();
+                return;
+            }
+            final float clamped = Mth.clamp(thrust, 0.0F, 1.0F);
+            if (clamped > ACTIVE_THRESHOLD) {
+                if (lastThrust <= ACTIVE_THRESHOLD) {
+                    playOneShot(FullfudRegistries.SHAHED_ENGINE_START.get(), clamped);
+                }
+                ensureLoop();
+                if (loopSound != null) {
+                    loopSound.setEngineMix(clamped);
+                }
+            } else if (lastThrust > ACTIVE_THRESHOLD) {
+                stop();
+                playOneShot(FullfudRegistries.SHAHED_ENGINE_END.get(), lastThrust);
+            }
+            lastThrust = clamped;
+            if (clamped <= ACTIVE_THRESHOLD && loopSound != null) {
+                loopSound.setEngineMix(0.0F);
+            }
+        }
+
+        private boolean shouldRemove() {
+            if (!seen || isInvalid()) {
+                stop();
+                return true;
+            }
+            return false;
+        }
+
+        private void ensureLoop() {
+            final Minecraft minecraft = Minecraft.getInstance();
+            if (loopSound != null && !loopSound.isStopped()) {
+                return;
+            }
+            loopSound = new ShahedEngineLoopSound(drone);
+            loopSound.setEngineMix(Math.max(lastThrust, ACTIVE_THRESHOLD));
+            minecraft.getSoundManager().play(loopSound);
+        }
+
+        private void playOneShot(final SoundEvent event, final float thrust) {
+            final Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft == null || minecraft.level == null) {
+                return;
+            }
+            final float volume = 0.25F + 0.75F * thrust;
+            final float pitch = 0.9F + 0.2F * thrust;
+            minecraft.level.playLocalSound(drone.getX(), drone.getY(), drone.getZ(), event, SoundSource.NEUTRAL, volume, pitch, false);
+        }
+    }
+
     private static void onRenderLevelStage(final RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             return;
@@ -271,91 +356,6 @@ public final class ShahedClientHandler {
         final int chargeTicks = emitter.hasBattery() ? emitter.getChargeTicks() : 0;
         final int percent = Mth.clamp(Math.round((chargeTicks / (float) RebBatteryItem.MAX_CHARGE_TICKS) * 100.0F), 0, 100);
         return Component.translatable("status.fullfud.reb.charge", percent);
-    }
-
-    private static final class EngineAudioController {
-        private static final float ACTIVE_THRESHOLD = 0.02F;
-        private final ShahedDroneEntity drone;
-        private ShahedEngineLoopSound loopSound;
-        private float lastThrust;
-
-        private boolean seen;
-
-        private EngineAudioController(final ShahedDroneEntity drone) {
-            this.drone = drone;
-        }
-
-        private boolean isInvalid() {
-            return drone.isRemoved() || !drone.isAlive();
-        }
-
-        private void stop() {
-            if (loopSound != null) {
-                loopSound.stopSound();
-                loopSound = null;
-            }
-        }
-
-        private void updateFromEntity() {
-            seen = true;
-            update(drone.getThrust());
-        }
-
-        private void update(final float thrust) {
-            final Minecraft minecraft = Minecraft.getInstance();
-            if (minecraft == null || minecraft.level == null) {
-                return;
-            }
-            if (isInvalid()) {
-                stop();
-                return;
-            }
-            final float clamped = Mth.clamp(thrust, 0.0F, 1.0F);
-            if (clamped > ACTIVE_THRESHOLD) {
-                if (lastThrust <= ACTIVE_THRESHOLD) {
-                    playOneShot(FullfudRegistries.SHAHED_ENGINE_START.get(), clamped);
-                }
-                ensureLoop();
-                if (loopSound != null) {
-                    loopSound.setEngineMix(clamped);
-                }
-            } else if (lastThrust > ACTIVE_THRESHOLD) {
-                stop();
-                playOneShot(FullfudRegistries.SHAHED_ENGINE_END.get(), lastThrust);
-            }
-            lastThrust = clamped;
-            if (clamped <= ACTIVE_THRESHOLD && loopSound != null) {
-                loopSound.setEngineMix(0.0F);
-            }
-        }
-
-        private boolean shouldRemove() {
-            if (!seen || isInvalid()) {
-                stop();
-                return true;
-            }
-            return false;
-        }
-
-        private void ensureLoop() {
-            final Minecraft minecraft = Minecraft.getInstance();
-            if (loopSound != null && !loopSound.isStopped()) {
-                return;
-            }
-            loopSound = new ShahedEngineLoopSound(drone);
-            loopSound.setEngineMix(Math.max(lastThrust, ACTIVE_THRESHOLD));
-            minecraft.getSoundManager().play(loopSound);
-        }
-
-        private void playOneShot(final SoundEvent event, final float thrust) {
-            final Minecraft minecraft = Minecraft.getInstance();
-            if (minecraft == null || minecraft.level == null) {
-                return;
-            }
-            final float volume = 0.25F + 0.75F * thrust;
-            final float pitch = 0.9F + 0.2F * thrust;
-            minecraft.level.playLocalSound(drone.getX(), drone.getY(), drone.getZ(), event, SoundSource.NEUTRAL, volume, pitch, false);
-        }
     }
 
     private static final class RebNoiseHandle {

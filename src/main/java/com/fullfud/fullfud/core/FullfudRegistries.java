@@ -77,7 +77,7 @@ public final class FullfudRegistries {
     public static final RegistryObject<EntityType<ShahedDroneEntity>> SHAHED_ENTITY = ENTITY_TYPES.register("shahed_136", () ->
         EntityType.Builder.<ShahedDroneEntity>of(ShahedDroneEntity::new, MobCategory.MISC)
             .sized(3.0F, 1.0F)
-            .clientTrackingRange(256)
+            .clientTrackingRange(1024)
             .updateInterval(1)
             .setShouldReceiveVelocityUpdates(true)
             .build(resource("shahed_136").toString())
@@ -86,7 +86,7 @@ public final class FullfudRegistries {
     public static final RegistryObject<EntityType<FpvDroneEntity>> FPV_DRONE_ENTITY = ENTITY_TYPES.register("fpv_drone", () ->
         EntityType.Builder.<FpvDroneEntity>of(FpvDroneEntity::new, MobCategory.MISC)
             .sized(0.9F, 0.35F)
-            .clientTrackingRange(256)
+            .clientTrackingRange(1024)
             .updateInterval(1)
             .setShouldReceiveVelocityUpdates(true)
             .build(resource("fpv_drone").toString())

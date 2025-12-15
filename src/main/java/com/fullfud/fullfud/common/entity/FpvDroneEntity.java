@@ -5,6 +5,8 @@ import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FakePlayerNettyChannelFix;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
+import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
+import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.RemoteAvatarVisibilityPacket;
 import com.mojang.authlib.GameProfile;
@@ -48,6 +50,9 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.level.ClipContext;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
 import net.minecraftforge.network.PacketDistributor;
@@ -161,6 +166,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private boolean wasArmedClient = false;
     private Object clientSoundInstance = null;
+    private boolean lastArmedAudio;
+    private boolean lastLoopAudio;
+
+    private static final byte AUDIO_TYPE_FPV = 0;
+    private static final byte AUDIO_KIND_START = 1;
+    private static final byte AUDIO_KIND_STOP = 2;
+    private static final float FPV_AUDIO_VOLUME_MULT = 0.2F;
+    private static final double FPV_AUDIO_RANGE_BLOCKS = 96.0D;
 
     public FpvDroneEntity(final EntityType<? extends FpvDroneEntity> type, final Level level) {
         super(type, level);
@@ -304,6 +317,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         ensureChunkTicket();
         updateSimplePhysics();
         updateControllerBinding();
+        broadcastEngineAudio();
         
         Vec3 preMoveVelocity = getDeltaMovement();
         move(MoverType.SELF, preMoveVelocity);
@@ -335,6 +349,91 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         throttleOutput = Mth.lerp(0.2F, throttleOutput, targetThrottle);
         entityData.set(DATA_THRUST, throttleOutput);
         entityData.set(DATA_ROLL, (float) droneRoll);
+    }
+
+    private void broadcastEngineAudio() {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        if (tickCount % 4 != 0) {
+            return;
+        }
+
+        final boolean armed = isArmed();
+        final float thrust = Mth.clamp(getThrust(), 0.0F, 1.0F);
+        final boolean loopActive = armed;
+
+        final double range = FPV_AUDIO_RANGE_BLOCKS;
+        final double rangeSqr = range * range;
+
+        if (armed != lastArmedAudio) {
+            final byte kind = armed ? AUDIO_KIND_START : AUDIO_KIND_STOP;
+            for (final ServerPlayer player : serverLevel.players()) {
+                final boolean controlling = entityData.get(DATA_CONTROLLER).map(player.getUUID()::equals).orElse(false);
+                final double distSqr = controlling ? 0.0D : player.distanceToSqr(this);
+                if (!controlling && distSqr > rangeSqr) {
+                    continue;
+                }
+                final float distanceFactor = distanceFactor(distSqr, range, 1.6D);
+                float volume = FPV_AUDIO_VOLUME_MULT * distanceFactor;
+                if (!controlling && isOccluded(serverLevel, player)) {
+                    volume *= 0.35F;
+                }
+                if (volume <= 0.001F) {
+                    continue;
+                }
+                FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> player),
+                    new DroneAudioOneShotPacket(AUDIO_TYPE_FPV, kind, getUUID(), getX(), getY(), getZ(), volume, 1.0F));
+            }
+        }
+
+        if (loopActive) {
+            final float pitch = 0.8F + thrust * 0.7F;
+            final float engine = 0.10F + 0.90F * thrust;
+            for (final ServerPlayer player : serverLevel.players()) {
+                final boolean controlling = entityData.get(DATA_CONTROLLER).map(player.getUUID()::equals).orElse(false);
+                final double distSqr = controlling ? 0.0D : player.distanceToSqr(this);
+                if (!controlling && distSqr > rangeSqr) {
+                    continue;
+                }
+                final float distanceFactor = distanceFactor(distSqr, range, 1.6D);
+                float volume = FPV_AUDIO_VOLUME_MULT * engine * distanceFactor;
+                if (!controlling && isOccluded(serverLevel, player)) {
+                    volume *= 0.35F;
+                }
+                FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> player),
+                    new DroneAudioLoopPacket(AUDIO_TYPE_FPV, getUUID(), getX(), getY(), getZ(), volume, pitch, true));
+            }
+        } else if (lastLoopAudio) {
+            for (final ServerPlayer player : serverLevel.players()) {
+                final boolean controlling = entityData.get(DATA_CONTROLLER).map(player.getUUID()::equals).orElse(false);
+                final double distSqr = controlling ? 0.0D : player.distanceToSqr(this);
+                if (!controlling && distSqr > rangeSqr) {
+                    continue;
+                }
+                FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> player),
+                    new DroneAudioLoopPacket(AUDIO_TYPE_FPV, getUUID(), getX(), getY(), getZ(), 0.0F, 1.0F, false));
+            }
+        }
+
+        lastArmedAudio = armed;
+        lastLoopAudio = loopActive;
+    }
+
+    private static float distanceFactor(final double distSqr, final double range, final double exponent) {
+        final double dist = Math.sqrt(Math.max(0.0D, distSqr));
+        final double norm = Mth.clamp(dist / range, 0.0D, 1.0D);
+        return (float) Math.pow(1.0D - norm, exponent);
+    }
+
+    private boolean isOccluded(final ServerLevel level, final ServerPlayer player) {
+        if (level == null || player == null) {
+            return false;
+        }
+        final Vec3 from = position().add(0.0D, 0.5D, 0.0D);
+        final Vec3 to = player.position().add(0.0D, player.getEyeHeight(), 0.0D);
+        final BlockHitResult result = level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+        return result.getType() != HitResult.Type.MISS;
     }
     
     private void calculateSignal(ServerPlayer controller) {
@@ -1152,18 +1251,20 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             final boolean currentlyArmed = drone.isArmed();
             final float currentThrust = drone.getThrust();
 
+            final float volumeMult = 0.2F;
+
             if (currentlyArmed && !drone.wasArmedClient) {
                 drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
                     FullfudRegistries.FPV_ENGINE_START.get(),
                     net.minecraft.sounds.SoundSource.NEUTRAL,
-                    1.0F, 1.0F, false);
+                    1.0F * volumeMult, 1.0F, false);
             }
 
             if (!currentlyArmed && drone.wasArmedClient) {
                 drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
                     FullfudRegistries.FPV_ENGINE_STOP.get(),
                     net.minecraft.sounds.SoundSource.NEUTRAL,
-                    1.0F, 1.0F, false);
+                    1.0F * volumeMult, 1.0F, false);
             }
 
             final net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
@@ -1176,6 +1277,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             }
 
             drone.wasArmedClient = currentlyArmed;
+
         }
     }
 
