@@ -3,7 +3,9 @@ package com.fullfud.fullfud.common.entity;
 import com.fullfud.fullfud.common.item.MonitorItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.data.ShahedLinkData;
+import com.fullfud.fullfud.core.network.FakePlayerNettyChannelFix;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
+import com.fullfud.fullfud.core.network.packet.RemoteAvatarVisibilityPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
@@ -1226,10 +1228,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         player.setSilent(true);
         player.setNoGravity(true);
         player.noPhysics = true;
-
-        if (controlSession != null && player.gameMode.getGameModeForPlayer() != GameType.SPECTATOR) {
-            player.setGameMode(GameType.SPECTATOR);
-        }
         
         if (player.level() != level()) {
             player.teleportTo((ServerLevel) level(), getX(), getY() + 1.0D, getZ(), getYRot(), getXRot());
@@ -1381,6 +1379,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         controllingPlayer = player.getUUID();
         writeRemoteTag(player);
         bindPlayerToDrone(player);
+        setPlayerHiddenForOthers(player, true);
         player.connection.send(new ClientboundSetCameraPacket(this));
         cameraPinned = true;
         return true;
@@ -1394,6 +1393,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             player.setSilent(false);
             player.setNoGravity(false);
             player.noPhysics = false;
+            setPlayerHiddenForOthers(player, false);
             removeAvatar();
             return;
         }
@@ -1404,6 +1404,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         
         forceReturnCamera(player);
         restorePlayer(player);
+        setPlayerHiddenForOthers(player, false);
         
         controllingPlayer = null;
         controlSession = null;
@@ -1417,9 +1418,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         player.setNoGravity(true);
         player.noPhysics = true;
         player.setDeltaMovement(Vec3.ZERO);
-        if (controlSession != null && player.gameMode.getGameModeForPlayer() != GameType.SPECTATOR) {
-            player.setGameMode(GameType.SPECTATOR);
-        }
         if (player.level() != level()) {
             player.teleportTo((ServerLevel) level(), getX(), getY() + 1.0D, getZ(), getYRot(), getXRot());
         }
@@ -1508,6 +1506,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         if (server == null || playerId == null || tag == null || !tag.hasUUID(PLAYER_TAG_DRONE)) {
             return;
         }
+        for (final ServerPlayer viewer : server.getPlayerList().getPlayers()) {
+            FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> viewer), new RemoteAvatarVisibilityPacket(playerId, false));
+        }
         final UUID droneId = tag.getUUID(PLAYER_TAG_DRONE);
         for (final ServerLevel level : server.getAllLevels()) {
             final Entity entity = level.getEntity(droneId);
@@ -1523,6 +1524,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
 
+        setPlayerHiddenForOthers(player, false);
         forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
 
         if (player.connection != null) {
@@ -1622,6 +1624,15 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
     }
 
+    private static void setPlayerHiddenForOthers(final ServerPlayer player, final boolean hidden) {
+        if (player == null || player.getServer() == null) {
+            return;
+        }
+        for (final ServerPlayer viewer : player.getServer().getPlayerList().getPlayers()) {
+            FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> viewer), new RemoteAvatarVisibilityPacket(player.getUUID(), hidden));
+        }
+    }
+
     private void dbg(ServerPlayer p, String msg) {
         if (p != null) {
             p.displayClientMessage(Component.literal("[SHAHED] " + msg), true);
@@ -1701,6 +1712,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             this.ownerId = ownerId;
             this.setNoGravity(true);
             this.noPhysics = true;
+            FakePlayerNettyChannelFix.ensureChannelPresent(this);
         }
 
         private void syncFrom(final ServerPlayer player) {

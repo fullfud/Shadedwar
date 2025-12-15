@@ -3,6 +3,7 @@ package com.fullfud.fullfud.core.network;
 import com.fullfud.fullfud.FullfudMod;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
+import com.fullfud.fullfud.core.network.packet.RemoteAvatarVisibilityPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
@@ -46,6 +47,7 @@ public final class FullfudNetwork {
         channel.registerMessage(nextId(), ShahedLinkPacket.class, ShahedLinkPacket::encode, ShahedLinkPacket::decode, ShahedLinkPacket::handle);
         channel.registerMessage(nextId(), FpvControlPacket.class, FpvControlPacket::encode, FpvControlPacket::decode, FpvControlPacket::handle);
         channel.registerMessage(nextId(), FpvReleasePacket.class, FpvReleasePacket::encode, FpvReleasePacket::decode, FpvReleasePacket::handle);
+        channel.registerMessage(nextId(), RemoteAvatarVisibilityPacket.class, RemoteAvatarVisibilityPacket::encode, RemoteAvatarVisibilityPacket::decode, RemoteAvatarVisibilityPacket::handle);
     }
 
     private static int nextId() {

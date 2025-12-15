@@ -1,6 +1,7 @@
 package com.fullfud.fullfud;
 
 import com.fullfud.fullfud.client.FpvClientHandler;
+import com.fullfud.fullfud.client.RemoteAvatarClientHandler;
 import com.fullfud.fullfud.client.ShahedClientHandler; 
 import com.fullfud.fullfud.core.FullfudCreativeTabs;
 import com.fullfud.fullfud.core.FullfudRegistries;
@@ -54,5 +55,6 @@ public class FullfudMod {
     private void onClientSetup(final FMLClientSetupEvent event) {
         FpvClientHandler.onClientSetup(event);
         ShahedClientHandler.onClientSetup(event);
+        RemoteAvatarClientHandler.onClientSetup(event);
     }
 }

@@ -3,7 +3,10 @@ package com.fullfud.fullfud.common.entity;
 import com.fullfud.fullfud.common.item.FpvControllerItem;
 import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.network.FakePlayerNettyChannelFix;
+import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
+import com.fullfud.fullfud.core.network.packet.RemoteAvatarVisibilityPacket;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import net.minecraft.nbt.CompoundTag;
@@ -47,6 +50,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
+import net.minecraftforge.network.PacketDistributor;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import org.joml.Quaternionf;
@@ -725,6 +729,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         session = new ControlSession(player.level().dimension(), player.position(), player.getYRot(), player.getXRot(), player.gameMode.getGameModeForPlayer());
         writeRemoteTag(player);
         bindPlayer(player);
+        setPlayerHiddenForOthers(player, true);
         spawnAvatar(player);
         player.connection.send(new ClientboundSetCameraPacket(this));
         cameraPinned = true;
@@ -735,10 +740,13 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!entityData.get(DATA_CONTROLLER).isPresent() && session == null) {
             return;
         }
-        clearRemoteTag(player);
-        if (player != null) {
-            forceReturnCamera(player);
-            restorePlayer(player);
+        final UUID controllerId = entityData.get(DATA_CONTROLLER).orElse(null);
+        final ServerPlayer controlling = player != null ? player : resolvePlayer(controllerId);
+        clearRemoteTag(controlling);
+        if (controlling != null) {
+            setPlayerHiddenForOthers(controlling, false);
+            forceReturnCamera(controlling);
+            restorePlayer(controlling);
         }
         
         entityData.set(DATA_CONTROLLER, Optional.empty());
@@ -755,6 +763,25 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         removeAvatar();
         cameraPinned = false;
         releaseChunkTicket();
+    }
+
+    private ServerPlayer resolvePlayer(final UUID playerId) {
+        if (playerId == null) {
+            return null;
+        }
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return null;
+        }
+        return serverLevel.getServer().getPlayerList().getPlayer(playerId);
+    }
+
+    private static void setPlayerHiddenForOthers(final ServerPlayer player, final boolean hidden) {
+        if (player == null || player.getServer() == null) {
+            return;
+        }
+        for (final ServerPlayer viewer : player.getServer().getPlayerList().getPlayers()) {
+            FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> viewer), new RemoteAvatarVisibilityPacket(player.getUUID(), hidden));
+        }
     }
     
     private void forceReturnCamera(final ServerPlayer player) {
@@ -846,6 +873,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (server == null || playerId == null || tag == null || !tag.hasUUID(PLAYER_TAG_DRONE)) {
             return;
         }
+        for (final ServerPlayer viewer : server.getPlayerList().getPlayers()) {
+            FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> viewer), new RemoteAvatarVisibilityPacket(playerId, false));
+        }
         final UUID droneId = tag.getUUID(PLAYER_TAG_DRONE);
         for (final ServerLevel level : server.getAllLevels()) {
             final Entity entity = level.getEntity(droneId);
@@ -861,6 +891,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return;
         }
 
+        setPlayerHiddenForOthers(player, false);
         forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
 
         if (player.connection != null) {
@@ -1159,6 +1190,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             this.ownerId = ownerId;
             this.setNoGravity(true);
             this.noPhysics = true;
+            FakePlayerNettyChannelFix.ensureChannelPresent(this);
         }
 
         private void syncFrom(final ServerPlayer player) {
