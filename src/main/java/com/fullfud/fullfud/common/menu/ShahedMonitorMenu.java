@@ -3,6 +3,8 @@ package com.fullfud.fullfud.common.menu;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
@@ -51,10 +53,19 @@ public class ShahedMonitorMenu extends AbstractContainerMenu {
             return;
         }
         final ServerLevel level = serverPlayer.serverLevel();
-        ShahedDroneEntity.find(level, droneId).ifPresent(drone -> {
+        if (ShahedDroneEntity.find(level, droneId).map(drone -> {
             drone.removeViewer(serverPlayer);
             drone.endRemoteControl(serverPlayer);
-        });
+            return true;
+        }).orElse(false)) {
+            return;
+        }
+
+        final CompoundTag root = serverPlayer.getPersistentData();
+        if (root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
+            ShahedDroneEntity.forceRestoreFromPersistentData(serverPlayer, root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG));
+            root.remove(ShahedDroneEntity.PLAYER_REMOTE_TAG);
+        }
     }
 
     private static UUID readDroneUuid(final FriendlyByteBuf buffer) {

@@ -20,6 +20,7 @@
   "message.fullfud.shahed.picked_up": "Шахед-136 подобран.",
   "message.fullfud.shahed.armed": "Дрон взведён и не может быть подобран.",
   "message.fullfud.monitor.in_use": "Дрон уже управляется.",
+  "message.fullfud.monitor.open_failed": "Не удалось открыть монитор.",
   "message.fullfud.monitor.turn": "РАЗВЕРНИСЬ",
   "screen.fullfud.monitor.no_signal": "НЕТ СИГНАЛА",
   "key.categories.fullfud": "Управление дронами",

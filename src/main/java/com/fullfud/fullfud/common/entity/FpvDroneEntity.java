@@ -19,6 +19,7 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.network.protocol.game.ClientboundSetCameraPacket;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -97,6 +98,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     
     private static final double GRAVITY = 0.055D;
     private static final double AIR_DRAG = 0.96D; 
+    private static final double DISARM_GRAVITY_MULT = 1.6D;
+    private static final double DISARM_AIR_DRAG = 0.98D;
     private static final double MAX_THRUST = 0.12D;
     private static final double ROTATION_RATE_DEG = 5.0D;
     private static final double YAW_RATE_DEG = 4.0D;
@@ -314,7 +317,12 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             }
         }
         
-        ensureChunkTicket();
+        final boolean shouldForceChunks = isArmed() || entityData.get(DATA_CONTROLLER).isPresent();
+        if (shouldForceChunks) {
+            ensureChunkTicket();
+        } else if (lastTicketPos != null) {
+            releaseChunkTicket();
+        }
         updateSimplePhysics();
         updateControllerBinding();
         broadcastEngineAudio();
@@ -574,17 +582,21 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         qRotation.transform(upVec);
 
         double thrustAccel = throttleOutput * MAX_THRUST_ACCEL;
-        
-        if (getBatteryTicks() <= 0 || !isArmed()) {
+         
+        final boolean freeFall = getBatteryTicks() <= 0 || !isArmed();
+        if (freeFall) {
             thrustAccel = 0;
         }
 
         final Vec3 thrustVec = new Vec3(upVec.x, upVec.y, upVec.z).scale(thrustAccel);
 
-        Vec3 accel = thrustVec.add(0, -GRAVITY_ACCEL, 0);
+        final double gravityAccel = freeFall ? (GRAVITY_ACCEL * DISARM_GRAVITY_MULT) : GRAVITY_ACCEL;
+        final double drag = freeFall ? DISARM_AIR_DRAG : AIR_DRAG;
+
+        Vec3 accel = thrustVec.add(0, -gravityAccel, 0);
 
         linearVelocity = linearVelocity.add(accel.scale(dt));
-        linearVelocity = linearVelocity.scale(AIR_DRAG);
+        linearVelocity = linearVelocity.scale(drag);
 
         final double speed = linearVelocity.length();
         if (speed > MAX_LINEAR_SPEED) {
@@ -610,7 +622,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return;
         }
         final ChunkPos currentPos = new ChunkPos(BlockPos.containing(position()));
-        final int radius = 2;
+        final int radius = Mth.clamp(serverLevel.getServer().getPlayerList().getViewDistance(), 2, 10);
         if (lastTicketPos == null || !lastTicketPos.equals(currentPos) || lastTicketRadius != radius) {
             if (lastTicketPos != null) {
                 serverLevel.getChunkSource().removeRegionTicket(FPV_TICKET, lastTicketPos, lastTicketRadius, getId());
@@ -655,11 +667,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             player.setGameMode(GameType.SPECTATOR);
         }
         
-        if ((this.tickCount & 1) == 0) {
-            player.connection.teleport(getX(), getY() + 1.0D, getZ(), player.getYRot(), player.getXRot());
-            if (cameraPinned) {
-                player.connection.send(new ClientboundSetCameraPacket(this));
-            }
+        player.connection.teleport(getX(), getY() + 1.0D, getZ(), player.getYRot(), player.getXRot());
+        if (cameraPinned) {
+            player.connection.send(new ClientboundSetCameraPacket(this));
         }
 
         syncAvatar(player);
@@ -1079,6 +1089,12 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private void removeAvatar() {
         if (avatar != null) {
+            if (level() instanceof ServerLevel serverLevel) {
+                final ClientboundRemoveEntitiesPacket removePacket = new ClientboundRemoveEntitiesPacket(avatar.getId());
+                for (final ServerPlayer viewer : serverLevel.getServer().getPlayerList().getPlayers()) {
+                    viewer.connection.send(removePacket);
+                }
+            }
             broadcastAvatarInfo(false);
             avatar.discard();
             avatar = null;

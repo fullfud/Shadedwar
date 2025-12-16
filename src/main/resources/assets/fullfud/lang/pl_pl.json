@@ -16,6 +16,7 @@
   "message.fullfud.shahed.picked_up": "Shahed-136 zabrany.",
   "message.fullfud.shahed.armed": "Shahed jest uzbrojony i nie można go odzyskać.",
   "message.fullfud.monitor.in_use": "Shahed jest już kontrolowany.",
+  "message.fullfud.monitor.open_failed": "Nie udało się otworzyć monitora Shahed.",
   "message.fullfud.monitor.turn": "ZAWRÓĆ",
   "screen.fullfud.monitor.no_signal": "BRAK SYGNAŁU WIDEO",
   "key.categories.fullfud": "Sterowanie Shahed",

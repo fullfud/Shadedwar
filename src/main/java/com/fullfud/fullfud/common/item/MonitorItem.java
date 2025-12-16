@@ -57,13 +57,19 @@ public class MonitorItem extends Item implements GeoItem {
                 player.displayClientMessage(Component.translatable("message.fullfud.monitor.in_use"), true);
                 return;
             }
-            NetworkHooks.openScreen(serverPlayer,
-                new SimpleMenuProvider((containerId, inv, ply) -> new ShahedMonitorMenu(containerId, inv, droneId, drone.getId()),
-                    Component.translatable("menu.fullfud.shahed_monitor")),
-                buf -> {
-                    buf.writeUUID(droneId);
-                    buf.writeInt(drone.getId());
-                });
+            try {
+                NetworkHooks.openScreen(serverPlayer,
+                    new SimpleMenuProvider((containerId, inv, ply) -> new ShahedMonitorMenu(containerId, inv, droneId, drone.getId()),
+                        Component.translatable("menu.fullfud.shahed_monitor")),
+                    buf -> {
+                        buf.writeUUID(droneId);
+                        buf.writeInt(drone.getId());
+                    });
+            } catch (Throwable t) {
+                drone.removeViewer(serverPlayer);
+                drone.endRemoteControl(serverPlayer);
+                player.displayClientMessage(Component.translatable("message.fullfud.monitor.open_failed"), true);
+            }
         }, () -> {
             ShahedLinkData.get(serverLevel).unlink(droneId);
             clearLinkedDrone(stack);

@@ -25,6 +25,7 @@
   "message.fullfud.shahed.picked_up": "Shahed-136 retrieved.",
   "message.fullfud.shahed.armed": "Shahed is armed and cannot be recovered.",
   "message.fullfud.monitor.in_use": "Shahed is already controlled.",
+  "message.fullfud.monitor.open_failed": "Failed to open Shahed monitor.",
   "message.fullfud.monitor.turn": "TURN AROUND",
   "screen.fullfud.monitor.no_signal": "NO VIDEO SIGNAL",
   "key.categories.fullfud": "Shahed Control",

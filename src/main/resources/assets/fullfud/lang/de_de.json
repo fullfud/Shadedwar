@@ -16,6 +16,7 @@
   "message.fullfud.shahed.picked_up": "Shahed-136 eingesammelt.",
   "message.fullfud.shahed.armed": "Shahed ist scharf und kann nicht geborgen werden.",
   "message.fullfud.monitor.in_use": "Shahed wird bereits gesteuert.",
+  "message.fullfud.monitor.open_failed": "Shahed-Monitor konnte nicht geöffnet werden.",
   "message.fullfud.monitor.turn": "UMDREHEN",
   "screen.fullfud.monitor.no_signal": "KEIN VIDEOSIGNAL",
   "key.categories.fullfud": "Shahed-Steuerung",

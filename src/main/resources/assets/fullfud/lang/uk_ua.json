@@ -16,6 +16,7 @@
   "message.fullfud.shahed.picked_up": "Shahed-136 забрано.",
   "message.fullfud.shahed.armed": "Шахед озброєний і не може бути повернений.",
   "message.fullfud.monitor.in_use": "Шахед уже під контролем.",
+  "message.fullfud.monitor.open_failed": "Не вдалося відкрити монітор Shahed.",
   "message.fullfud.monitor.turn": "РОЗВЕРНИСЯ",
   "screen.fullfud.monitor.no_signal": "НЕМАЄ ВІДЕОСИГНАЛУ",
   "key.categories.fullfud": "Керування Shahed",

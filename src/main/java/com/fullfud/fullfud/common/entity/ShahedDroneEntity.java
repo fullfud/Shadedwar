@@ -22,6 +22,7 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoRemovePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerInfoUpdatePacket;
+import net.minecraft.network.protocol.game.ClientboundRemoveEntitiesPacket;
 import net.minecraft.network.protocol.game.ClientboundSetCameraPacket;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -331,6 +332,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 List<Entity> collisions = level().getEntities(this, getBoundingBox().inflate(0.3D), e -> !e.isSpectator() && e.isPickable());
                 for (Entity entity : collisions) {
                     if (avatar != null && entity == avatar) continue;
+                    if (controllingPlayer != null && entity instanceof ServerPlayer sp && controllingPlayer.equals(sp.getUUID())) continue;
                     detonate();
                     return;
                 }
@@ -1340,7 +1342,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             if (cameraPinned) {
                 player.connection.send(new ClientboundSetCameraPacket(this));
             }
-        } else if ((this.tickCount & 1) == 0) {
+        } else {
             player.connection.teleport(getX(), getY() + 1.0D, getZ(), player.getYRot(), player.getXRot());
             if (cameraPinned) {
                 player.connection.send(new ClientboundSetCameraPacket(this));
@@ -1724,6 +1726,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     private void removeAvatar() {
         if (avatar != null) {
+            if (level() instanceof ServerLevel serverLevel) {
+                final ClientboundRemoveEntitiesPacket removePacket = new ClientboundRemoveEntitiesPacket(avatar.getId());
+                for (final ServerPlayer viewer : serverLevel.getServer().getPlayerList().getPlayers()) {
+                    viewer.connection.send(removePacket);
+                }
+            }
             broadcastAvatarInfo(false);
             avatar.discard();
             avatar = null;
