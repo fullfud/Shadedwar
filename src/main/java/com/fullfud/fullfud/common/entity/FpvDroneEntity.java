@@ -904,6 +904,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private void bindPlayer(final ServerPlayer player) {
         player.setInvisible(true);
+        player.setSilent(true);
         player.setNoGravity(true);
         player.noPhysics = true;
         player.setDeltaMovement(Vec3.ZERO);
@@ -917,6 +918,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (session == null) {
             player.setGameMode(GameType.SURVIVAL);
             player.setInvisible(false);
+            player.setSilent(false);
             player.setNoGravity(false);
             player.noPhysics = false;
             return;
@@ -936,6 +938,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             player.setGameMode(GameType.SURVIVAL);
         }
         player.setInvisible(false);
+        player.setSilent(false);
         player.setNoGravity(false);
         player.noPhysics = false;
         player.setDeltaMovement(Vec3.ZERO);
@@ -1008,6 +1011,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
 
         player.setInvisible(false);
+        player.setSilent(false);
         player.setNoGravity(false);
         player.noPhysics = false;
         player.setDeltaMovement(Vec3.ZERO);

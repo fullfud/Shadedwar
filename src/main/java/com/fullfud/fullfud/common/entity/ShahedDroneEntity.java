@@ -70,6 +70,8 @@ import net.minecraftforge.network.NetworkHooks;
 import net.minecraftforge.network.PacketDistributor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.core.animation.AnimatableManager;
@@ -204,6 +206,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private double bodyRoll;
     private double bodyPitchO;
     private double bodyRollO;
+
+    private final Quaternionf rotationQuaternion = new Quaternionf();
+    private final Vector3f eulerAngles = new Vector3f();
+    private final Vector3f axisVector = new Vector3f();
     private double engineOutput;
     private boolean remoteInitialized;
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
@@ -497,24 +503,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
         integrateAttitude(dt);
 
-        final double yawRad = Math.toRadians(bodyYaw);
+        final Vec3 forward = directionFromQuaternion(0.0F, 0.0F, 1.0F);
+        final Vec3 localUp = directionFromQuaternion(0.0F, 1.0F, 0.0F);
+
         final double pitchRad = Math.toRadians(bodyPitch);
-        final double rollRad = Math.toRadians(bodyRoll);
-
-        final Vec3 forward = new Vec3(
-            -Math.sin(yawRad) * Math.cos(pitchRad),
-            -Math.sin(pitchRad),
-            Math.cos(yawRad) * Math.cos(pitchRad)
-        ).normalize();
-
-        final Vec3 upBase = new Vec3(0, 1, 0);
-        final Vec3 right = forward.cross(upBase).normalize();
-        
-        Vec3 localUp = right.cross(forward).normalize();
-        
-        final double sr = Math.sin(rollRad);
-        final double cr = Math.cos(rollRad);
-        localUp = localUp.scale(cr).add(right.scale(sr)).normalize();
 
         final double speed = linearVelocity.length();
         final double altitude = this.getY();
@@ -540,6 +532,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final Vec3 acceleration = netForce.scale(1.0D / totalMass);
         linearVelocity = linearVelocity.add(acceleration.scale(dt));
 
+        applySideslipDamping(dt, forward);
+
         final double speedCapSq = MAX_AIRSPEED * MAX_AIRSPEED;
         if (linearVelocity.lengthSqr() > speedCapSq) {
             linearVelocity = linearVelocity.normalize().scale(MAX_AIRSPEED);
@@ -554,14 +548,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         updateBoundingBox();
         resolveCollisionVelocity();
 
-        if (linearVelocity.lengthSqr() > 1.0) {
-            final double horizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
-            final double moveYaw = Math.toDegrees(Math.atan2(-linearVelocity.x, linearVelocity.z));
-            
-            double yawDiff = Mth.wrapDegrees(moveYaw - bodyYaw);
-            bodyYaw += yawDiff * 0.1D; 
-        }
-
         telemetry = new FlightTelemetry(
             (float) speed,
             (float) Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z),
@@ -575,22 +561,83 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private void integrateAttitude(final double dt) {
-        double targetRollRate = controlStrafe * MAX_ROLL_RATE;
-        rollRate = approach(rollRate, Math.toRadians(targetRollRate), Math.toRadians(ROLL_ACCEL) * dt);
-        
-        double targetPitchRate = controlForward * MAX_PITCH_RATE; 
-        pitchRate = approach(pitchRate, Math.toRadians(targetPitchRate), Math.toRadians(PITCH_ACCEL) * dt);
+        syncQuaternionFromBodyAngles();
 
-        bodyRoll += Math.toDegrees(rollRate * dt);
-        bodyPitch += Math.toDegrees(pitchRate * dt);
-        
-        bodyPitch = Mth.clamp(bodyPitch, -85.0D, 85.0D);
-        bodyRoll = Mth.wrapDegrees(bodyRoll);
-        bodyYaw = Mth.wrapDegrees(bodyYaw);
+        final double targetRollRateDegPerSec = controlStrafe * MAX_ROLL_RATE;
+        rollRate = approach(rollRate, Math.toRadians(targetRollRateDegPerSec), Math.toRadians(ROLL_ACCEL) * dt);
+
+        final double targetPitchRateDegPerSec = controlForward * MAX_PITCH_RATE;
+        pitchRate = approach(pitchRate, Math.toRadians(targetPitchRateDegPerSec), Math.toRadians(PITCH_ACCEL) * dt);
+
+        final float pitchDeltaRad = (float) (pitchRate * dt);
+        final float rollDeltaRad = (float) (rollRate * dt);
+
+        final Quaternionf delta = new Quaternionf()
+            .rotateX(pitchDeltaRad)
+            .rotateZ(rollDeltaRad);
+
+        rotationQuaternion.mul(delta);
+        rotationQuaternion.normalize();
+
+        rotationQuaternion.getEulerAnglesYXZ(eulerAngles);
+
+        double newYaw = Math.toDegrees(-eulerAngles.y);
+        double newPitch = Math.toDegrees(eulerAngles.x);
+        double newRoll = Math.toDegrees(eulerAngles.z);
+
+        if (!Double.isFinite(newYaw)) {
+            newYaw = bodyYaw;
+        }
+        if (!Double.isFinite(newPitch)) {
+            newPitch = bodyPitch;
+        }
+        if (!Double.isFinite(newRoll)) {
+            newRoll = bodyRoll;
+        }
+
+        bodyYaw = Mth.wrapDegrees(newYaw);
+        bodyPitch = Mth.clamp(newPitch, -85.0D, 85.0D);
+        bodyRoll = Mth.wrapDegrees(newRoll);
+
+        syncQuaternionFromBodyAngles();
 
         this.setXRot((float) bodyPitch);
         this.setYRot((float) bodyYaw);
         this.setYHeadRot((float) bodyYaw);
+    }
+
+    private void applySideslipDamping(final double dt, final Vec3 forward) {
+        if (forward == null) {
+            return;
+        }
+        if (linearVelocity.lengthSqr() <= 1.0E-6D) {
+            return;
+        }
+
+        final Vec3 worldUp = new Vec3(0.0D, 1.0D, 0.0D);
+        Vec3 right = forward.cross(worldUp);
+        if (right.lengthSqr() <= 1.0E-6D) {
+            return;
+        }
+        right = right.normalize();
+
+        final double slipSpeed = linearVelocity.dot(right);
+        final double dampingPerSec = 4.0D;
+        final double slipDelta = slipSpeed * dampingPerSec * dt;
+        linearVelocity = linearVelocity.add(right.scale(-slipDelta));
+    }
+
+    private void syncQuaternionFromBodyAngles() {
+        final float yawRad = (float) Math.toRadians(-bodyYaw);
+        final float pitchRad = (float) Math.toRadians(bodyPitch);
+        final float rollRad = (float) Math.toRadians(bodyRoll);
+        rotationQuaternion.identity().rotateYXZ(yawRad, pitchRad, rollRad);
+    }
+
+    private Vec3 directionFromQuaternion(final float x, final float y, final float z) {
+        axisVector.set(x, y, z);
+        rotationQuaternion.transform(axisVector);
+        return new Vec3(axisVector.x, axisVector.y, axisVector.z).normalize();
     }
 
     private void applyProjectileDamageEffects(final double dt) {
