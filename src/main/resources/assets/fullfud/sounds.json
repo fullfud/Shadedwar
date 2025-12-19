@@ -13,15 +13,6 @@
   "shahed.engine_end": {
     "sounds": ["fullfud:shahed136_engine_end"]
   },
-  "reb.static": {
-    "sounds": [
-      {
-        "name": "fullfud:reb_noise",
-        "volume": 0.2,
-        "attenuation_distance": 15
-      }
-    ]
-  },
   "fpv.engine_start": {
     "subtitle": "subtitles.fullfud.fpv.start",
     "sounds": [

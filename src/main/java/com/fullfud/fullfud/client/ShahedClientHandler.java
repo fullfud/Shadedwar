@@ -4,7 +4,6 @@ import com.fullfud.fullfud.client.render.RebEmitterRenderer;
 import com.fullfud.fullfud.client.render.ShahedDroneRenderer;
 import com.fullfud.fullfud.client.render.ShahedLauncherRenderer;
 import com.fullfud.fullfud.client.screen.ShahedMonitorScreen;
-import com.fullfud.fullfud.client.sound.RebStaticNoiseSound;
 import com.fullfud.fullfud.client.sound.ShahedEngineLoopSound;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
@@ -70,7 +69,6 @@ public final class ShahedClientHandler {
     private static ShahedStatusPacket lastStatus;
     private static long lastStatusTimestamp;
     private static final Map<UUID, EngineAudioController> ENGINE_AUDIO = new HashMap<>();
-    private static final Map<Integer, RebNoiseHandle> REB_NOISE = new HashMap<>();
 
     private ShahedClientHandler() {
     }
@@ -154,23 +152,16 @@ public final class ShahedClientHandler {
         if (minecraft.level == null || minecraft.isPaused()) {
             ENGINE_AUDIO.values().forEach(EngineAudioController::stop);
             ENGINE_AUDIO.clear();
-            REB_NOISE.values().forEach(RebNoiseHandle::stop);
-            REB_NOISE.clear();
             return;
         }
         ENGINE_AUDIO.values().forEach(controller -> controller.seen = false);
-        REB_NOISE.values().forEach(handle -> handle.seen = false);
         for (final var entity : minecraft.level.entitiesForRendering()) {
             if (entity instanceof ShahedDroneEntity drone) {
                 ENGINE_AUDIO.computeIfAbsent(drone.getUUID(), id -> new EngineAudioController(drone))
                     .updateFromEntity();
-            } else if (entity instanceof RebEmitterEntity emitter) {
-                REB_NOISE.computeIfAbsent(emitter.getId(), id -> new RebNoiseHandle(emitter))
-                    .update(emitter);
             }
         }
         ENGINE_AUDIO.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
-        REB_NOISE.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
     }
 
     private static final class EngineAudioController {
@@ -356,53 +347,5 @@ public final class ShahedClientHandler {
         final int chargeTicks = emitter.hasBattery() ? emitter.getChargeTicks() : 0;
         final int percent = Mth.clamp(Math.round((chargeTicks / (float) RebBatteryItem.MAX_CHARGE_TICKS) * 100.0F), 0, 100);
         return Component.translatable("status.fullfud.reb.charge", percent);
-    }
-
-    private static final class RebNoiseHandle {
-        private RebEmitterEntity emitter;
-        private RebStaticNoiseSound sound;
-        private boolean seen;
-
-        private RebNoiseHandle(final RebEmitterEntity emitter) {
-            this.emitter = emitter;
-        }
-
-        private void update(final RebEmitterEntity emitter) {
-            this.emitter = emitter;
-            seen = true;
-            ensureSound();
-        }
-
-        private void ensureSound() {
-            if (sound != null && !sound.isStopped()) {
-                return;
-            }
-            if (emitter == null || !emitter.hasBattery() || emitter.getChargeTicks() <= 0) {
-                return;
-            }
-            sound = new RebStaticNoiseSound(emitter);
-            final Minecraft minecraft = Minecraft.getInstance();
-            if (minecraft != null) {
-                minecraft.getSoundManager().play(sound);
-            }
-        }
-
-        private boolean shouldRemove() {
-            if (!seen || emitter == null || emitter.isRemoved()) {
-                stop();
-                return true;
-            }
-            if (sound != null && sound.shouldRemove()) {
-                sound = null;
-            }
-            return false;
-        }
-
-        private void stop() {
-            if (sound != null) {
-                sound.stopSound();
-                sound = null;
-            }
-        }
     }
 }

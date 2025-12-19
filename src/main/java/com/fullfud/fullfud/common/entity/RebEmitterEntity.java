@@ -17,9 +17,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.api.distmarker.OnlyIn;
-import net.minecraftforge.fml.DistExecutor;
 import net.minecraftforge.network.NetworkHooks;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
@@ -29,15 +26,6 @@ import software.bernie.geckolib.core.animation.AnimationController;
 import software.bernie.geckolib.core.animation.RawAnimation;
 import software.bernie.geckolib.core.object.PlayState;
 import software.bernie.geckolib.util.GeckoLibUtil;
-
-import java.nio.ShortBuffer;
-import java.util.Map;
-import java.util.WeakHashMap;
-import java.util.concurrent.ThreadLocalRandom;
-
-@OnlyIn(value = Dist.CLIENT)
-class _ALGuard {
-}
 
 public class RebEmitterEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Boolean> DATA_HAS_BATTERY = SynchedEntityData.defineId(RebEmitterEntity.class, EntityDataSerializers.BOOLEAN);
@@ -49,12 +37,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
 
     private static final int STARTUP_DURATION_TICKS = 3 * 20;
 
-    private static final float NOISE_MAX_VOLUME = 0.20f; 
-    private static final float NOISE_RADIUS     = 15.0f; 
-    private static final int   SAMPLE_RATE_HZ   = 22050; 
-    private static final int   BUFFER_SAMPLES   = 2048;  
-    private static final int   NUM_BUFFERS      = 4;     
-
     private ItemStack battery = ItemStack.EMPTY;
     private int chargeTicks;
     private boolean fallingFromSupport;
@@ -63,8 +45,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
     private int startupTicks;
 
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
-
-    private boolean cPrevActiveCondition;
 
     public RebEmitterEntity(final EntityType<? extends RebEmitterEntity> type, final Level level) {
         super(type, level);
@@ -96,8 +76,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
 
             updateStartup();
             drainEnergy();
-        } else {
-            DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> clientTickNoise());
         }
 
         wasOnGround = onGround();
@@ -135,14 +113,6 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
         dropContents();
         discard();
         return true;
-    }
-
-    @Override
-    public void remove(RemovalReason reason) {
-        super.remove(reason);
-        if (level() != null && level().isClientSide) {
-            DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientWhiteNoiseManager.stop(this));
-        }
     }
 
     @Override
@@ -268,151 +238,5 @@ public class RebEmitterEntity extends Entity implements GeoEntity {
     @Override
     public AnimatableInstanceCache getAnimatableInstanceCache() {
         return animationCache;
-    }
-
-    private void clientTickNoise() {
-        final boolean shouldPlay = hasBattery() && hasFinishedStartup() && chargeTicks > 0 && !this.isRemoved();
-        if (shouldPlay) {
-            ClientWhiteNoiseManager.ensure(this);
-            ClientWhiteNoiseManager.update(this);
-        } else {
-            ClientWhiteNoiseManager.stop(this);
-        }
-        cPrevActiveCondition = shouldPlay;
-    }
-
-    @OnlyIn(Dist.CLIENT)
-    private static final class ClientWhiteNoiseManager {
-        private static final Map<RebEmitterEntity, WhiteNoiseALStream> STREAMS = new WeakHashMap<>();
-
-        static void ensure(RebEmitterEntity e) {
-            STREAMS.computeIfAbsent(e, k -> new WhiteNoiseALStream(e));
-        }
-
-        static void update(RebEmitterEntity e) {
-            final WhiteNoiseALStream s = STREAMS.get(e);
-            if (s != null) s.tick();
-        }
-
-        static void stop(RebEmitterEntity e) {
-            final WhiteNoiseALStream s = STREAMS.remove(e);
-            if (s != null) s.stopAndDispose();
-        }
-    }
-
-    @OnlyIn(Dist.CLIENT)
-    private static final class WhiteNoiseALStream {
-        private final RebEmitterEntity emitter;
-
-        private int sourceId = 0;
-        private final int[] buffers = new int[NUM_BUFFERS];
-        private boolean disposed = false;
-
-        private ShortBuffer scratch;
-
-        WhiteNoiseALStream(RebEmitterEntity emitter) {
-            this.emitter = emitter;
-            initAL();
-        }
-
-        private void initAL() {
-            try {
-                sourceId = org.lwjgl.openal.AL10.alGenSources();
-                org.lwjgl.openal.AL10.alSourcef(sourceId, org.lwjgl.openal.AL10.AL_PITCH, 1.0f);
-                org.lwjgl.openal.AL10.alSourcef(sourceId, org.lwjgl.openal.AL10.AL_GAIN, 0.0f);
-                org.lwjgl.openal.AL10.alSource3f(sourceId, org.lwjgl.openal.AL10.AL_POSITION, 0, 0, 0);
-                org.lwjgl.openal.AL10.alSource3f(sourceId, org.lwjgl.openal.AL10.AL_VELOCITY, 0, 0, 0);
-                org.lwjgl.openal.AL10.alSourcei(sourceId, org.lwjgl.openal.AL10.AL_LOOPING, org.lwjgl.openal.AL10.AL_FALSE);
-
-                for (int i = 0; i < NUM_BUFFERS; i++) buffers[i] = org.lwjgl.openal.AL10.alGenBuffers();
-
-                scratch = org.lwjgl.system.MemoryUtil.memAllocShort(BUFFER_SAMPLES);
-
-                for (int i = 0; i < NUM_BUFFERS; i++) {
-                    fillWhiteNoisePCM(scratch, BUFFER_SAMPLES);
-                    org.lwjgl.openal.AL10.alBufferData(buffers[i], org.lwjgl.openal.AL10.AL_FORMAT_MONO16, scratch, SAMPLE_RATE_HZ);
-                    org.lwjgl.openal.AL10.alSourceQueueBuffers(sourceId, buffers[i]);
-                }
-
-                org.lwjgl.openal.AL10.alSourcePlay(sourceId);
-            } catch (Throwable t) {
-                disposeNative();
-            }
-        }
-
-        void tick() {
-            if (disposed || emitter.isRemoved() || emitter.level() == null || !emitter.level().isClientSide) {
-                stopAndDispose();
-                return;
-            }
-
-            org.lwjgl.openal.AL10.alSource3f(sourceId, org.lwjgl.openal.AL10.AL_POSITION, (float) emitter.getX(), (float) emitter.getY(), (float) emitter.getZ());
-
-            final Player p = net.minecraft.client.Minecraft.getInstance().player;
-            if (p == null) { stopAndDispose(); return; }
-            final double dx = p.getX() - emitter.getX();
-            final double dy = p.getEyeY() - (emitter.getY() + 0.5);
-            final double dz = p.getZ() - emitter.getZ();
-            final double dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-
-            float gain = 0.0f;
-            if (dist < NOISE_RADIUS) {
-                gain = NOISE_MAX_VOLUME * (1.0f - (float)(dist / NOISE_RADIUS));
-            }
-            org.lwjgl.openal.AL10.alSourcef(sourceId, org.lwjgl.openal.AL10.AL_GAIN, gain);
-
-            int processed = org.lwjgl.openal.AL10.alGetSourcei(sourceId, org.lwjgl.openal.AL10.AL_BUFFERS_PROCESSED);
-            while (processed-- > 0) {
-                int buf = org.lwjgl.openal.AL10.alSourceUnqueueBuffers(sourceId);
-                if (buf == org.lwjgl.openal.AL10.AL_INVALID_VALUE) break;
-                fillWhiteNoisePCM(scratch, BUFFER_SAMPLES);
-                org.lwjgl.openal.AL10.alBufferData(buf, org.lwjgl.openal.AL10.AL_FORMAT_MONO16, scratch, SAMPLE_RATE_HZ);
-                org.lwjgl.openal.AL10.alSourceQueueBuffers(sourceId, buf);
-            }
-
-            int state = org.lwjgl.openal.AL10.alGetSourcei(sourceId, org.lwjgl.openal.AL10.AL_SOURCE_STATE);
-            if (state != org.lwjgl.openal.AL10.AL_PLAYING) {
-                org.lwjgl.openal.AL10.alSourcePlay(sourceId);
-            }
-        }
-
-        void stopAndDispose() {
-            if (disposed) return;
-            disposed = true;
-            try {
-                if (sourceId != 0) {
-                    org.lwjgl.openal.AL10.alSourceStop(sourceId);
-                    int queued = org.lwjgl.openal.AL10.alGetSourcei(sourceId, org.lwjgl.openal.AL10.AL_BUFFERS_QUEUED);
-                    while (queued-- > 0) {
-                        org.lwjgl.openal.AL10.alSourceUnqueueBuffers(sourceId);
-                    }
-                }
-                disposeNative();
-            } catch (Throwable ignored) {}
-        }
-
-        private void disposeNative() {
-            try {
-                for (int i = 0; i < NUM_BUFFERS; i++) {
-                    if (buffers[i] != 0) org.lwjgl.openal.AL10.alDeleteBuffers(buffers[i]);
-                }
-                if (sourceId != 0) org.lwjgl.openal.AL10.alDeleteSources(sourceId);
-                if (scratch != null) {
-                    org.lwjgl.system.MemoryUtil.memFree(scratch);
-                    scratch = null;
-                }
-            } catch (Throwable ignored) {}
-        }
-
-        private void fillWhiteNoisePCM(ShortBuffer out, int samples) {
-            out.clear();
-            final ThreadLocalRandom rnd = ThreadLocalRandom.current();
-            for (int i = 0; i < samples; i++) {
-                float f = rnd.nextFloat() * 2f - 1f;
-                short s = (short) (f * 32767);
-                out.put(s);
-            }
-            out.flip();
-        }
     }
 }
