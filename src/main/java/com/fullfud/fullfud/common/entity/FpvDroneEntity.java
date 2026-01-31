@@ -3,6 +3,7 @@ package com.fullfud.fullfud.common.entity;
 import com.fullfud.fullfud.common.item.FpvControllerItem;
 import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.DroneExplosionLimiter;
 import com.fullfud.fullfud.core.network.FakePlayerNettyChannelFix;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
@@ -46,10 +47,10 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.Pose;
+import net.minecraft.world.entity.projectile.LargeFireball;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.HitResult;
@@ -175,12 +176,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private Object clientSoundInstance = null;
     private boolean lastArmedAudio;
     private boolean lastLoopAudio;
+    private boolean detonating;
 
     private static final byte AUDIO_TYPE_FPV = 0;
     private static final byte AUDIO_KIND_START = 1;
     private static final byte AUDIO_KIND_STOP = 2;
     private static final float FPV_AUDIO_VOLUME_MULT = 0.2F;
     private static final double FPV_AUDIO_RANGE_BLOCKS = 96.0D;
+    private static final float FPV_FIREBALL_POWER = 3.0F;
 
     public FpvDroneEntity(final EntityType<? extends FpvDroneEntity> type, final Level level) {
         super(type, level);
@@ -720,6 +723,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (level().isClientSide() || isRemoved()) {
             return false;
         }
+        if (detonating) {
+            return false;
+        }
         if (isArmed() || source.getDirectEntity() instanceof net.minecraft.world.entity.projectile.Projectile) {
             explode();
             return true;
@@ -743,13 +749,40 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private void explode() {
+        if (detonating || isRemoved()) {
+            return;
+        }
+        detonating = true;
         final ServerPlayer controller = getController();
         if (controller != null) {
             endRemoteControl(controller);
         }
-        
-        level().explode(this, getX(), getY(), getZ(), 4.0F, ExplosionInteraction.TNT);
+        spawnFireballEffect();
         discard();
+    }
+
+    private void spawnFireballEffect() {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        final int power = Math.max(1, Math.round(FPV_FIREBALL_POWER));
+        final ServerPlayer controller = getController();
+        LargeFireball fireball;
+        if (controller != null) {
+            fireball = new LargeFireball(serverLevel, controller, 0.0D, 0.0D, 0.0D, power);
+        } else {
+            final Entity entity = EntityType.FIREBALL.create(serverLevel);
+            if (!(entity instanceof LargeFireball created)) {
+                return;
+            }
+            fireball = created;
+        }
+        fireball.moveTo(getX(), getY(), getZ(), 0.0F, 0.0F);
+        fireball.setDeltaMovement(Vec3.ZERO);
+        DroneExplosionLimiter.markNoBlockDamage(fireball);
+        serverLevel.addFreshEntity(fireball);
+        serverLevel.explode(fireball, getX(), getY(), getZ(), FPV_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
+        fireball.discard();
     }
 
     private void dropAsItem() {

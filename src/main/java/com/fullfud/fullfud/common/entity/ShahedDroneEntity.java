@@ -2,6 +2,7 @@ package com.fullfud.fullfud.common.entity;
 
 import com.fullfud.fullfud.common.item.MonitorItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.DroneExplosionLimiter;
 import com.fullfud.fullfud.core.data.ShahedLinkData;
 import com.fullfud.fullfud.core.network.FakePlayerNettyChannelFix;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
@@ -50,7 +51,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.MoverType;
-import net.minecraft.world.entity.item.PrimedTnt;
+import net.minecraft.world.entity.projectile.LargeFireball;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.Pose;
@@ -58,7 +59,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.Level.ExplosionInteraction;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
@@ -204,6 +204,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final byte AUDIO_KIND_STOP = 2;
     private static final float ENGINE_ACTIVE_THRESHOLD = 0.02F;
     private static final double SHAHED_AUDIO_RANGE_BLOCKS = 800.0D;
+    // Explosion tuning: approximate TNT-equivalent power for visual/terrain effects (Explosion Overhaul uses power).
+    private static final float SHAHED_FIREBALL_POWER = 15.0F;
     private double fuelMass = FUEL_CAPACITY_KG;
     private FlightTelemetry telemetry = FlightTelemetry.ZERO;
     private double bodyYaw;
@@ -1445,30 +1447,33 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             forceReturnCamera(controller);
             endRemoteControl(controller);
         }
-        spawnSecondaryCharges();
-        level().explode(this, getX(), getY(), getZ(), 10.0F, ExplosionInteraction.MOB);
+        spawnFireballEffect();
         applyBlastDamage();
         discard();
     }
 
-    private void spawnSecondaryCharges() {
+    private void spawnFireballEffect() {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
-        final RandomSource random = serverLevel.getRandom();
-        for (int i = 0; i < 10; i++) {
-            final PrimedTnt charge = EntityType.TNT.create(serverLevel);
-            if (charge == null) {
-                continue;
+        final int power = Math.max(1, Math.round(SHAHED_FIREBALL_POWER));
+        final ServerPlayer controller = getControllingPlayer();
+        LargeFireball fireball;
+        if (controller != null) {
+            fireball = new LargeFireball(serverLevel, controller, 0.0D, 0.0D, 0.0D, power);
+        } else {
+            final Entity entity = EntityType.FIREBALL.create(serverLevel);
+            if (!(entity instanceof LargeFireball created)) {
+                return;
             }
-            final double spread = 2.0D;
-            final double offsetX = (random.nextDouble() - 0.5D) * spread;
-            final double offsetY = random.nextDouble() * 0.6D;
-            final double offsetZ = (random.nextDouble() - 0.5D) * spread;
-            charge.moveTo(getX() + offsetX, getY() + offsetY, getZ() + offsetZ, this.getYRot(), this.getXRot());
-            charge.setFuse(0);
-            serverLevel.addFreshEntity(charge);
+            fireball = created;
         }
+        fireball.moveTo(getX(), getY(), getZ(), 0.0F, 0.0F);
+        fireball.setDeltaMovement(Vec3.ZERO);
+        DroneExplosionLimiter.markNoBlockDamage(fireball);
+        serverLevel.addFreshEntity(fireball);
+        serverLevel.explode(fireball, getX(), getY(), getZ(), SHAHED_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
+        fireball.discard();
     }
 
     private void applyBlastDamage() {
