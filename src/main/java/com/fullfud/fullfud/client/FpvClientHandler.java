@@ -32,6 +32,8 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.client.event.ViewportEvent;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
@@ -110,6 +112,8 @@ public final class FpvClientHandler {
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderTick);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onCameraAngles);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderGui);
+            MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderOverlay);
+            MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderHand);
         });
     }
 
@@ -447,13 +451,7 @@ public final class FpvClientHandler {
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;
-
-        final UUID controller = drone.getControllerId();
-        if (controller == null || !controller.equals(minecraft.player.getUUID())) {
-            return;
-        }
-
-        if (!hasLinkedGoggles(minecraft, drone)) {
+        if (!isFpvActive(minecraft, drone)) {
             return;
         }
 
@@ -555,6 +553,22 @@ public final class FpvClientHandler {
         g.drawString(font, power, rightX - font.width(power), botY - 20, 0xFFFFFFFF, true);
     }
 
+    private static void onRenderOverlay(final RenderGuiOverlayEvent.Pre event) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null) return;
+        if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;
+        if (!isFpvActive(minecraft, drone)) return;
+        event.setCanceled(true);
+    }
+
+    private static void onRenderHand(final RenderHandEvent event) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null) return;
+        if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;
+        if (!isFpvActive(minecraft, drone)) return;
+        event.setCanceled(true);
+    }
+
     private static ResourceLocation getBatteryTexture(int percent) {
         if (percent >= 75) return BATTERY_100;
         if (percent >= 50) return BATTERY_75;
@@ -571,6 +585,17 @@ public final class FpvClientHandler {
         return SIGNAL_0;
     }
 
+    private static boolean isFpvActive(final Minecraft minecraft, final FpvDroneEntity drone) {
+        if (minecraft == null || minecraft.player == null || drone == null) {
+            return false;
+        }
+        final UUID controller = drone.getControllerId();
+        if (controller == null || !controller.equals(minecraft.player.getUUID())) {
+            return false;
+        }
+        return hasLinkedGoggles(minecraft, drone);
+    }
+
     private static boolean hasLinkedGoggles(final Minecraft minecraft, final FpvDroneEntity drone) {
         final var player = minecraft.player;
         if (player == null) {
@@ -580,8 +605,10 @@ public final class FpvClientHandler {
         if (!(head.getItem() instanceof com.fullfud.fullfud.common.item.FpvGogglesItem)) {
             return false;
         }
-        return com.fullfud.fullfud.common.item.FpvGogglesItem.getLinked(head)
-                .filter(id -> id.equals(drone.getUUID()))
-                .isPresent();
+        final var linked = com.fullfud.fullfud.common.item.FpvGogglesItem.getLinked(head);
+        if (linked.isPresent()) {
+            return linked.get().equals(drone.getUUID());
+        }
+        return true;
     }
 }
