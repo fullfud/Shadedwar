@@ -11,7 +11,6 @@ import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.logging.LogUtils;
 import com.mojang.math.Axis;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.CameraType;
@@ -40,7 +39,6 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.lwjgl.glfw.GLFW;
-import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -48,8 +46,6 @@ import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
 public final class FpvClientHandler {
-    private static final Logger LOGGER = LogUtils.getLogger();
-
     private static final KeyMapping FPV_YAW_LEFT = new KeyMapping("key.fullfud.fpv_yaw_left", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_Q, "key.categories.fullfud");
     private static final KeyMapping FPV_YAW_RIGHT = new KeyMapping("key.fullfud.fpv_yaw_right", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_E, "key.categories.fullfud");
     private static final KeyMapping FPV_ARM = new KeyMapping("key.fullfud.fpv_arm", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.fullfud");
@@ -92,6 +88,9 @@ public final class FpvClientHandler {
     private static boolean inFpvMode = false;
     private static CameraType previousCameraType;
     private static boolean forcedFirstPerson;
+    private static final int FPV_FOV = 110;
+    private static Integer previousFov;
+    private static boolean forcedFov;
     private static PostChain fpvPostChain;
     private static Field passesFieldCache;
     private static int lastChainWidth = -1;
@@ -136,6 +135,7 @@ public final class FpvClientHandler {
                 inFpvMode = false;
                 destroyFpvChain();
             }
+            restoreFov();
             return;
         }
 
@@ -154,8 +154,8 @@ public final class FpvClientHandler {
             if (inFpvMode) {
                 inFpvMode = false;
                 destroyFpvChain();
-                LOGGER.info("[FPV] FPV post chain disabled");
             }
+            restoreFov();
             return;
         }
 
@@ -169,7 +169,6 @@ public final class FpvClientHandler {
             try {
                 fpvPostChain.process(event.renderTickTime);
             } catch (Exception e) {
-                LOGGER.info("[FPV] Error processing FPV post chain: {}", e.toString());
             }
         }
     }
@@ -182,11 +181,9 @@ public final class FpvClientHandler {
             lastChainHeight = mc.getWindow().getHeight();
             fpvPostChain.resize(lastChainWidth, lastChainHeight);
             passesFieldCache = null;
-            LOGGER.info("[FPV] Created FPV post chain {}", SHADER_LOC);
         } catch (Exception e) {
             fpvPostChain = null;
             passesFieldCache = null;
-            LOGGER.info("[FPV] Failed to create FPV post chain: {}", e.toString());
         }
     }
 
@@ -199,9 +196,7 @@ public final class FpvClientHandler {
             lastChainHeight = h;
             try {
                 fpvPostChain.resize(w, h);
-                LOGGER.info("[FPV] Resized FPV post chain to {}x{}", w, h);
             } catch (Exception e) {
-                LOGGER.info("[FPV] Error resizing FPV post chain: {}", e.toString());
             }
         }
     }
@@ -210,9 +205,7 @@ public final class FpvClientHandler {
         if (fpvPostChain != null) {
             try {
                 fpvPostChain.close();
-                LOGGER.info("[FPV] Destroyed FPV post chain {}", SHADER_LOC);
             } catch (Exception e) {
-                LOGGER.info("[FPV] Error destroying FPV post chain: {}", e.toString());
             }
         }
         fpvPostChain = null;
@@ -252,6 +245,7 @@ public final class FpvClientHandler {
         }
 
         ensureFirstPerson(minecraft);
+        ensureFpvFov(minecraft);
         suppressSpectatorHotbarKeys(minecraft);
 
         if (activeDrone == null || !activeDrone.equals(drone.getUUID())) {
@@ -382,8 +376,38 @@ public final class FpvClientHandler {
         }
     }
 
+    private static void ensureFpvFov(final Minecraft minecraft) {
+        if (minecraft == null || minecraft.options == null) {
+            return;
+        }
+        if (forcedFov) {
+            return;
+        }
+        previousFov = minecraft.options.fov().get();
+        minecraft.options.fov().set(FPV_FOV);
+        forcedFov = true;
+    }
+
+    private static void restoreFov() {
+        if (!forcedFov) {
+            return;
+        }
+        forcedFov = false;
+        final Integer restore = previousFov;
+        previousFov = null;
+
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.options == null) {
+            return;
+        }
+        if (restore != null) {
+            minecraft.options.fov().set(restore);
+        }
+    }
+
     private static void resetState() {
         restoreCameraType();
+        restoreFov();
         if (inFpvMode) {
             inFpvMode = false;
             destroyFpvChain();
@@ -410,7 +434,6 @@ public final class FpvClientHandler {
                         if (obj instanceof List<?> list && !list.isEmpty()) {
                             if (list.get(0) instanceof PostPass) {
                                 passesFieldCache = f;
-                                LOGGER.info("[FPV] Cached passes field {}", f.getName());
                                 break;
                             }
                         }
@@ -429,7 +452,6 @@ public final class FpvClientHandler {
                 }
             }
         } catch (Exception e) {
-            LOGGER.info("[FPV] Error updating shader uniforms: {}", e.toString());
         }
     }
 

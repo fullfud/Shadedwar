@@ -14,3 +14,4 @@ Thumbs.db
 *.tmp
 *.swp
 *.DS_Store
+/.tmp_mcp

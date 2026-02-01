@@ -69,8 +69,6 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.network.NetworkHooks;
 import net.minecraftforge.network.PacketDistributor;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 import software.bernie.geckolib.animatable.GeoEntity;
@@ -165,8 +163,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double DAMAGE_SMOKE_SPREAD = 0.7D;
     private static final TicketType<Integer> SHAHED_TICKET = TicketType.create("fullfud_shahed", Integer::compareTo, 4);
     private static final EntityDimensions SHAHEED_DIMENSIONS = EntityDimensions.scalable(3.0F, 1.0F);
-    private static final Logger LOG = LogManager.getLogger("ShahedDrone");
-
     private final Map<UUID, Integer> viewerDistances = new HashMap<>();
     private float controlForward;
     private float controlStrafe;
@@ -1709,7 +1705,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     private void forceReturnCamera(final ServerPlayer player) {
         if (player == null) {
-            LOG.warn("[DRONE {}] forceReturnCamera: player null", this.getStringUUID());
             return;
         }
         clearViewPoint(player);

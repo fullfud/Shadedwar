@@ -1,19 +1,14 @@
 package com.fullfud.fullfud.core.network;
 
-import com.mojang.logging.LogUtils;
 import io.netty.channel.Channel;
 import io.netty.channel.embedded.EmbeddedChannel;
 import net.minecraft.network.Connection;
 import net.minecraft.server.level.ServerPlayer;
-import org.slf4j.Logger;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class FakePlayerNettyChannelFix {
-    private static final Logger LOGGER = LogUtils.getLogger();
-    private static final AtomicBoolean warned = new AtomicBoolean(false);
 
     private FakePlayerNettyChannelFix() { }
 
@@ -40,9 +35,7 @@ public final class FakePlayerNettyChannelFix {
         }
 
         final Channel channel = new EmbeddedChannel();
-        if (!setConnectionChannel(connection, channel) && warned.compareAndSet(false, true)) {
-            LOGGER.warn("[FULLFUD] Failed to patch fake player Connection.channel (mods may crash when treating FakePlayer as real)");
-        }
+        setConnectionChannel(connection, channel);
     }
 
     private static Connection extractConnection(final Object packetListener) {
@@ -98,4 +91,3 @@ public final class FakePlayerNettyChannelFix {
         return false;
     }
 }
-
