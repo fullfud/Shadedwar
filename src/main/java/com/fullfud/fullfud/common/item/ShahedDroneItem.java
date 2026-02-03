@@ -17,10 +17,16 @@ import net.minecraft.world.level.Level;
 
 public class ShahedDroneItem extends Item {
     private final ShahedColor color;
+    private final double speedScale;
 
     public ShahedDroneItem(final Properties properties, final ShahedColor color) {
+        this(properties, color, 1.0D);
+    }
+
+    public ShahedDroneItem(final Properties properties, final ShahedColor color, final double speedScale) {
         super(properties);
         this.color = color;
+        this.speedScale = speedScale;
     }
 
     @Override
@@ -48,5 +54,13 @@ public class ShahedDroneItem extends Item {
             }
             player.displayClientMessage(Component.translatable("message.fullfud.monitor.linked"), true);
         }
+    }
+
+    public ShahedColor getColor() {
+        return color;
+    }
+
+    public double getSpeedScale() {
+        return speedScale;
     }
 }

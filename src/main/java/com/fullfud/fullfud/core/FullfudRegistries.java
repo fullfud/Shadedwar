@@ -50,6 +50,14 @@ public final class FullfudRegistries {
         new ShahedDroneItem(new Item.Properties().stacksTo(1), ShahedColor.BLACK)
     );
 
+    public static final RegistryObject<Item> SHAHED_ITEM_SLOW = ITEMS.register("shahed_136_slow", () ->
+        new ShahedDroneItem(new Item.Properties().stacksTo(1), ShahedColor.WHITE, 0.5D)
+    );
+
+    public static final RegistryObject<Item> SHAHED_BLACK_ITEM_SLOW = ITEMS.register("shahed_136_black_slow", () ->
+        new ShahedDroneItem(new Item.Properties().stacksTo(1), ShahedColor.BLACK, 0.5D)
+    );
+
     public static final RegistryObject<Item> FPV_DRONE_ITEM = ITEMS.register("fpv_drone", () ->
         new FpvDroneItem(new Item.Properties().stacksTo(1))
     );

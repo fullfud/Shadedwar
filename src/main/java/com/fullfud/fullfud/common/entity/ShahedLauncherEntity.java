@@ -1,6 +1,7 @@
 package com.fullfud.fullfud.common.entity;
 
 import com.fullfud.fullfud.common.item.MonitorItem;
+import com.fullfud.fullfud.common.item.ShahedDroneItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -68,16 +69,16 @@ public class ShahedLauncherEntity extends Entity implements GeoEntity {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return InteractionResult.PASS;
         }
-        if (held.is(FullfudRegistries.SHAHED_ITEM.get()) || held.is(FullfudRegistries.SHAHED_BLACK_ITEM.get())) {
+        if (held.getItem() instanceof ShahedDroneItem droneItem) {
             if (hasDrone()) {
                 return InteractionResult.FAIL;
             }
-            final ShahedColor color = held.is(FullfudRegistries.SHAHED_BLACK_ITEM.get()) ? ShahedColor.BLACK : ShahedColor.WHITE;
             final ShahedDroneEntity drone = FullfudRegistries.SHAHED_ENTITY.get().create(serverLevel);
             if (drone == null) {
                 return InteractionResult.PASS;
             }
-            drone.setColor(color);
+            drone.setColor(droneItem.getColor());
+            drone.setSpeedScale(droneItem.getSpeedScale());
             drone.mountLauncher(this);
             serverLevel.addFreshEntity(drone);
             setStoredDrone(drone);
@@ -194,9 +195,7 @@ public class ShahedLauncherEntity extends Entity implements GeoEntity {
         if (drone == null) {
             return;
         }
-        final ItemStack stack = new ItemStack(drone.getColor() == ShahedColor.BLACK
-            ? FullfudRegistries.SHAHED_BLACK_ITEM.get()
-            : FullfudRegistries.SHAHED_ITEM.get());
+        final ItemStack stack = drone.createItemStack();
         if (!player.addItem(stack)) {
             spawnAtLocation(stack);
         }
@@ -209,9 +208,7 @@ public class ShahedLauncherEntity extends Entity implements GeoEntity {
         if (drone == null) {
             return;
         }
-        final ItemStack stack = new ItemStack(drone.getColor() == ShahedColor.BLACK
-            ? FullfudRegistries.SHAHED_BLACK_ITEM.get()
-            : FullfudRegistries.SHAHED_ITEM.get());
+        final ItemStack stack = drone.createItemStack();
         spawnAtLocation(stack);
         drone.discard();
         clearStoredDrone();

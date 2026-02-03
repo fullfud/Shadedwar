@@ -119,6 +119,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_DAMAGE_TARGET_SPEED = "DamageTargetSpeed";
     private static final String TAG_LINEAR_VELOCITY = "LinearVelocity";
     private static final String TAG_FUEL = "FuelMass";
+    private static final String TAG_SPEED_SCALE = "SpeedScale";
     
     private static final String TAG_SESS_X = "SessX";
     private static final String TAG_SESS_Y = "SessY";
@@ -161,6 +162,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double PROJECTILE_DAMAGE_DECEL_PER_SEC = 24.0D;
     private static final double DAMAGE_SMOKE_PARTICLES_PER_TICK = 7.0D / 20.0D;
     private static final double DAMAGE_SMOKE_SPREAD = 0.7D;
+    private static final double SLOW_SPEED_SCALE = 0.5D;
     private static final TicketType<Integer> SHAHED_TICKET = TicketType.create("fullfud_shahed", Integer::compareTo, 4);
     private static final EntityDimensions SHAHEED_DIMENSIONS = EntityDimensions.scalable(3.0F, 1.0F);
     private final Map<UUID, Integer> viewerDistances = new HashMap<>();
@@ -187,6 +189,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private boolean armed;
     private boolean detonating;
     private double launchBaselineY;
+    private double speedScale = 1.0D;
     private UUID controllingPlayer;
     private ControlSession controlSession;
     private RemotePilotFakePlayer avatar;
@@ -485,6 +488,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     private void updateFlight() {
         final double dt = TICK_SECONDS;
+        final double scale = resolveSpeedScale();
         float throttle = Mth.clamp(getThrust(), 0.0F, 1.0F);
         
         if (fuelMass > 0.0D && throttle > 0.0F) {
@@ -504,7 +508,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         
         final double totalMass = BASE_MASS_KG + fuelMass;
         engineOutput += (throttle - engineOutput) * ENGINE_SPOOL_RATE;
-        final double thrustForce = fuelMass <= 0.0D ? 0.0D : computeEffectiveThrust(engineOutput);
+        final double thrustForce = fuelMass <= 0.0D ? 0.0D : computeEffectiveThrust(engineOutput) * scale;
 
         integrateAttitude(dt);
 
@@ -516,7 +520,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final double speed = linearVelocity.length();
         final double altitude = this.getY();
         final double airDensity = sampleAirDensity(altitude);
-        final double q = 0.5D * airDensity * speed * speed;
+        final double aeroScale = scale > 0.0D ? (1.0D / scale) : 1.0D;
+        final double q = 0.5D * airDensity * speed * speed * aeroScale;
 
         final double velocityPitch = speed > 0.01 ? Math.atan2(linearVelocity.y, Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z)) : -pitchRad;
         
@@ -530,7 +535,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final Vec3 dragVector = linearVelocity.normalize().scale(-cd * q * WING_AREA);
         
         final Vec3 thrustVector = forward.scale(thrustForce);
-        final Vec3 gravityVector = new Vec3(0, -totalMass * GRAVITY, 0);
+        final Vec3 gravityVector = new Vec3(0, -totalMass * GRAVITY * scale, 0);
 
         Vec3 netForce = thrustVector.add(liftVector).add(dragVector).add(gravityVector);
         
@@ -539,9 +544,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
         applySideslipDamping(dt, forward);
 
-        final double speedCapSq = MAX_AIRSPEED * MAX_AIRSPEED;
+        final double maxAirSpeed = MAX_AIRSPEED * scale;
+        final double speedCapSq = maxAirSpeed * maxAirSpeed;
         if (linearVelocity.lengthSqr() > speedCapSq) {
-            linearVelocity = linearVelocity.normalize().scale(MAX_AIRSPEED);
+            linearVelocity = linearVelocity.normalize().scale(maxAirSpeed);
         }
 
         applyProjectileDamageEffects(dt);
@@ -553,9 +559,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         updateBoundingBox();
         resolveCollisionVelocity();
 
+        final float displayScale = (float) (scale > 0.0D ? (1.0D / scale) : 1.0D);
         telemetry = new FlightTelemetry(
-            (float) speed,
-            (float) Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z),
+            (float) speed * displayScale,
+            (float) Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z) * displayScale,
             (float) linearVelocity.y,
             (float) Math.toDegrees(aoa),
             0.0F,
@@ -568,11 +575,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private void integrateAttitude(final double dt) {
         syncQuaternionFromBodyAngles();
 
-        final double targetRollRateDegPerSec = controlStrafe * MAX_ROLL_RATE;
-        rollRate = approach(rollRate, Math.toRadians(targetRollRateDegPerSec), Math.toRadians(ROLL_ACCEL) * dt);
+        final double rateScale = resolveSpeedScale();
+        final double targetRollRateDegPerSec = controlStrafe * MAX_ROLL_RATE * rateScale;
+        rollRate = approach(rollRate, Math.toRadians(targetRollRateDegPerSec), Math.toRadians(ROLL_ACCEL * rateScale) * dt);
 
-        final double targetPitchRateDegPerSec = controlForward * MAX_PITCH_RATE;
-        pitchRate = approach(pitchRate, Math.toRadians(targetPitchRateDegPerSec), Math.toRadians(PITCH_ACCEL) * dt);
+        final double targetPitchRateDegPerSec = controlForward * MAX_PITCH_RATE * rateScale;
+        pitchRate = approach(pitchRate, Math.toRadians(targetPitchRateDegPerSec), Math.toRadians(PITCH_ACCEL * rateScale) * dt);
 
         final float pitchDeltaRad = (float) (pitchRate * dt);
         final float rollDeltaRad = (float) (rollRate * dt);
@@ -776,6 +784,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.armed = tag.getBoolean(TAG_ARMED);
         this.launchBaselineY = tag.contains(TAG_LAUNCH_Y) ? tag.getDouble(TAG_LAUNCH_Y) : this.getY();
         this.fuelMass = tag.contains(TAG_FUEL) ? tag.getDouble(TAG_FUEL) : FUEL_CAPACITY_KG;
+        this.speedScale = tag.contains(TAG_SPEED_SCALE, Tag.TAG_DOUBLE) ? tag.getDouble(TAG_SPEED_SCALE) : 1.0D;
         this.bodyYaw = tag.contains(TAG_BODY_YAW) ? tag.getDouble(TAG_BODY_YAW) : this.getYRot();
         this.bodyPitch = tag.contains(TAG_BODY_PITCH) ? tag.getDouble(TAG_BODY_PITCH) : this.getXRot();
         this.bodyRoll = tag.contains(TAG_BODY_ROLL) ? tag.getDouble(TAG_BODY_ROLL) : 0.0D;
@@ -832,6 +841,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         tag.putBoolean(TAG_ARMED, armed);
         tag.putDouble(TAG_LAUNCH_Y, launchBaselineY);
         tag.putDouble(TAG_FUEL, fuelMass);
+        tag.putDouble(TAG_SPEED_SCALE, speedScale);
         tag.putDouble(TAG_BODY_YAW, bodyYaw);
         tag.putDouble(TAG_BODY_PITCH, bodyPitch);
         tag.putDouble(TAG_BODY_ROLL, bodyRoll);
@@ -882,9 +892,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 player.displayClientMessage(Component.translatable("message.fullfud.shahed.armed"), true);
                 return InteractionResult.FAIL;
             }
-            final ItemStack droneStack = new ItemStack(getColor() == ShahedColor.BLACK
-                ? FullfudRegistries.SHAHED_BLACK_ITEM.get()
-                : FullfudRegistries.SHAHED_ITEM.get());
+            final ItemStack droneStack = createItemStack();
             if (!player.addItem(droneStack)) {
                 spawnAtLocation(droneStack);
             }
@@ -1165,6 +1173,37 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         entityData.set(DATA_COLOR, color.getId());
     }
 
+    public void setSpeedScale(final double scale) {
+        if (!Double.isFinite(scale) || scale <= 0.0D) {
+            this.speedScale = 1.0D;
+            return;
+        }
+        this.speedScale = Mth.clamp(scale, 0.1D, 2.0D);
+    }
+
+    public double getSpeedScale() {
+        return speedScale;
+    }
+
+    public ItemStack createItemStack() {
+        if (isSlowVariant()) {
+            return new ItemStack(getColor() == ShahedColor.BLACK
+                ? FullfudRegistries.SHAHED_BLACK_ITEM_SLOW.get()
+                : FullfudRegistries.SHAHED_ITEM_SLOW.get());
+        }
+        return new ItemStack(getColor() == ShahedColor.BLACK
+            ? FullfudRegistries.SHAHED_BLACK_ITEM.get()
+            : FullfudRegistries.SHAHED_ITEM.get());
+    }
+
+    private boolean isSlowVariant() {
+        return Math.abs(resolveSpeedScale() - SLOW_SPEED_SCALE) <= 1.0E-3D;
+    }
+
+    private double resolveSpeedScale() {
+        return speedScale > 0.0D ? speedScale : 1.0D;
+    }
+
     public void setLaunchVelocity(final Vec3 velocity) {
         this.linearVelocity = velocity;
         setDeltaMovement(linearVelocity.scale(TICK_SECONDS));
@@ -1194,7 +1233,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final Vec3 base = launcher.position().add(0.0D, LAUNCHER_VERTICAL_OFFSET, 0.0D);
         final Vec3 spawn = base.add(forward.scale(LAUNCHER_FORWARD_OFFSET)).add(0.0D, LAUNCHER_UP_OFFSET, 0.0D);
         setPos(spawn.x, spawn.y, spawn.z);
-        releaseFromLauncher(new Vec3(forward.x * LAUNCHER_LAUNCH_SPEED, 0.0D, forward.z * LAUNCHER_LAUNCH_SPEED), yaw);
+        final double scale = resolveSpeedScale();
+        releaseFromLauncher(new Vec3(forward.x * LAUNCHER_LAUNCH_SPEED * scale, 0.0D, forward.z * LAUNCHER_LAUNCH_SPEED * scale), yaw);
     }
 
     public void releaseFromLauncher(final Vec3 velocity, final float launcherYaw) {
@@ -1222,9 +1262,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
         if (!level().isClientSide) {
-            final ItemStack stack = new ItemStack(getColor() == ShahedColor.BLACK
-                ? FullfudRegistries.SHAHED_BLACK_ITEM.get()
-                : FullfudRegistries.SHAHED_ITEM.get());
+            final ItemStack stack = createItemStack();
             spawnAtLocation(stack);
             discard();
         }
@@ -1525,7 +1563,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         if (!remoteInitialized) {
             ensureFlightAltitude();
-            final double launchSpeed = Math.min(MAX_AIRSPEED * 0.95D, INITIAL_LAUNCH_SPEED);
+            final double scale = resolveSpeedScale();
+            final double launchSpeed = Math.min(MAX_AIRSPEED * scale * 0.95D, INITIAL_LAUNCH_SPEED * scale);
             this.linearVelocity = forwardGroundVector().scale(launchSpeed);
             setThrust(1.0F);
             this.engineOutput = 1.0D;
