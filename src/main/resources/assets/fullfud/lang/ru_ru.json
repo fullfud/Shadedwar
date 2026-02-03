@@ -39,6 +39,7 @@
   "message.fullfud.fpv.linked": "Пульт привязан к FPV-дрону.",
   "message.fullfud.fpv.link_cleared": "Привязка пульта сброшена.",
   "message.fullfud.fpv.need_goggles": "Привяжите и наденьте FPV-очки к этому дрону, чтобы управлять.",
+  "message.fullfud.fpv.out_of_range": "FPV-дрон вне зоны прогруженных чанков.",
   "key.fullfud.fpv_yaw_left": "Поворот влево",
   "key.fullfud.fpv_yaw_right": "Поворот вправо",
   "key.fullfud.fpv_arm": "Взвести/снять взвод"

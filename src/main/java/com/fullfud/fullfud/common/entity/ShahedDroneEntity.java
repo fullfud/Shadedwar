@@ -51,7 +51,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.MoverType;
-import net.minecraft.world.entity.projectile.LargeFireball;
+import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.Pose;
@@ -185,6 +185,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double JAMMER_HARD_RADIUS = 300.0D;
     private static final double JAMMER_MAX_RADIUS = 600.0D;
     private boolean armed;
+    private boolean detonating;
     private double launchBaselineY;
     private UUID controllingPlayer;
     private ControlSession controlSession;
@@ -1438,38 +1439,31 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         if (level().isClientSide()) {
             return;
         }
+        if (detonating || isRemoved()) {
+            return;
+        }
+        detonating = true;
         final ServerPlayer controller = getControllingPlayer();
         if (controller != null) {
             forceReturnCamera(controller);
             endRemoteControl(controller);
         }
-        spawnFireballEffect();
+        spawnTntEffect();
         applyBlastDamage();
         discard();
     }
 
-    private void spawnFireballEffect() {
+    private void spawnTntEffect() {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
-        final int power = Math.max(1, Math.round(SHAHED_FIREBALL_POWER));
         final ServerPlayer controller = getControllingPlayer();
-        LargeFireball fireball;
-        if (controller != null) {
-            fireball = new LargeFireball(serverLevel, controller, 0.0D, 0.0D, 0.0D, power);
-        } else {
-            final Entity entity = EntityType.FIREBALL.create(serverLevel);
-            if (!(entity instanceof LargeFireball created)) {
-                return;
-            }
-            fireball = created;
-        }
-        fireball.moveTo(getX(), getY(), getZ(), 0.0F, 0.0F);
-        fireball.setDeltaMovement(Vec3.ZERO);
-        DroneExplosionLimiter.markNoBlockDamage(fireball);
-        serverLevel.addFreshEntity(fireball);
-        serverLevel.explode(fireball, getX(), getY(), getZ(), SHAHED_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
-        fireball.discard();
+        final PrimedTnt tnt = new PrimedTnt(serverLevel, getX(), getY(), getZ(), controller);
+        tnt.setFuse(0);
+        DroneExplosionLimiter.markNoBlockDamage(tnt);
+        serverLevel.addFreshEntity(tnt);
+        serverLevel.explode(tnt, getX(), getY(), getZ(), SHAHED_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
+        tnt.discard();
     }
 
     private void applyBlastDamage() {
@@ -1588,7 +1582,14 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         if (player == null) {
             return;
         }
-        player.getPersistentData().remove(PLAYER_REMOTE_TAG);
+        final CompoundTag root = player.getPersistentData();
+        if (!root.contains(PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
+            return;
+        }
+        final CompoundTag tag = root.getCompound(PLAYER_REMOTE_TAG);
+        tag.putLong("FreezeUntil", player.level().getGameTime() + 60);
+        tag.putBoolean("FreezeOnly", true);
+        root.put(PLAYER_REMOTE_TAG, tag);
     }
 
     public void forceReleaseControlFor(final UUID playerId) {
@@ -1729,11 +1730,14 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
         final ChunkPos chunkPos = this.chunkPosition();
-        if (lastSentViewCenter == null || !lastSentViewCenter.equals(chunkPos)) {
+        final boolean centerChanged = lastSentViewCenter == null || !lastSentViewCenter.equals(chunkPos);
+        if (centerChanged) {
             player.connection.send(new ClientboundSetChunkCacheCenterPacket(chunkPos.x, chunkPos.z));
             lastSentViewCenter = chunkPos;
         }
-        com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkTracking(player);
+        if (centerChanged || (tickCount % 20 == 0)) {
+            com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkTracking(player);
+        }
     }
 
     private void resetViewCenter(final ServerPlayer player) {

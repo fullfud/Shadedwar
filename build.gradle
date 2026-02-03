@@ -104,13 +104,15 @@ repositories {
     }
 }
 
-def latticeJar = files("libs/lattice-3.0.0.jar")
+def latticeVersion = "3.0.0"
+def latticeDevJar = files("lattice/build/libs/lattice-${latticeVersion}.jar")
+def latticeReobfJar = files("lattice/build/reobfJar/output.jar")
 
 dependencies {
     minecraft "net.minecraftforge:forge:1.20.1-47.1.0"
     implementation fg.deobf("software.bernie.geckolib:geckolib-forge-1.20.1:4.3.1")
-    compileOnly latticeJar
-    runtimeOnly latticeJar
+    compileOnly latticeDevJar
+    runtimeOnly latticeDevJar
 }
 
 sourceSets {
@@ -124,8 +126,13 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 17
 }
 
+tasks.named("compileJava") {
+    dependsOn(":lattice:jar")
+}
+
 jar {
     archiveVersion.set(providers.provider { project.version.toString() })
+    dependsOn(":lattice:reobfJar")
     manifest {
         attributes([
             "Specification-Title": "shadedwar",
@@ -136,9 +143,9 @@ jar {
             "Implementation-Vendor": "fullfud"
         ])
     }
-    from(latticeJar) {
+    from(latticeReobfJar) {
         into "META-INF/jarjar"
-        rename { "lattice-3.0.0.jar" }
+        rename { "lattice-${latticeVersion}.jar" }
     }
 }
 

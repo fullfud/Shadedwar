@@ -47,7 +47,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.Pose;
-import net.minecraft.world.entity.projectile.LargeFireball;
+import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -105,6 +105,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final double MAX_THRUST = 0.12D;
     private static final double ROTATION_RATE_DEG = 5.0D;
     private static final double YAW_RATE_DEG = 4.0D;
+    private static final float YAW_SINGULARITY_PITCH_DEG = 89.0F;
+    private static final double YAW_SINGULARITY_HORIZ_EPS = 1.0E-3D;
 
     private static final double TICK_SECONDS = 1.0D / 20.0D;
     private static final double GRAVITY_ACCEL = GRAVITY * 400.0D; // blocks/sec^2 (from blocks/tick^2)
@@ -135,6 +137,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
     private final Quaternionf qRotation = new Quaternionf();
+    private final Quaternionf qRotationO = new Quaternionf();
     
     private boolean physicsInitialized = false;
     
@@ -147,6 +150,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private double droneRoll;
     private double droneRollO;
+    private float headingYaw;
 
     private Vec3 linearVelocity = Vec3.ZERO; // blocks/sec
     private float pitchRateRadPerSec;
@@ -163,6 +167,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private ChunkPos lastTicketPos;
     private int lastTicketRadius;
     private ChunkPos lastSentViewCenter;
+    private int viewPointResyncCooldown;
     
     private RemotePilotFakePlayer avatar;
     private int lerpSteps;
@@ -281,6 +286,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     public void tick() {
         super.tick();
         droneRollO = droneRoll;
+        qRotationO.set(qRotation);
         
         if (!level().isClientSide()) {
             tickServer();
@@ -338,11 +344,15 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (controller != null && entityData.get(DATA_CONTROLLER).isPresent()) {
             // Ensure the player is still bound to this drone as the active view point.
             if (controller instanceof LatticeServerPlayer lattice) {
+                if (viewPointResyncCooldown > 0) {
+                    viewPointResyncCooldown--;
+                }
                 final dev.lazurite.lattice.api.point.ViewPoint current = lattice.getViewPoint();
-                if (current != this) {
+                if (current != this && viewPointResyncCooldown <= 0) {
                     setViewPoint(controller, this);
                     lastSentViewCenter = null;
                     com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkRefresh(controller);
+                    viewPointResyncCooldown = 20;
                 }
             }
             syncViewCenter(controller);
@@ -550,6 +560,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         float xRad = (float) Math.toRadians(getXRot()); 
         float zRad = (float) Math.toRadians(droneRoll);
         qRotation.identity().rotateYXZ(yRad, xRad, zRad);
+        headingYaw = getYRot();
     }
 
     private void updateSimplePhysics() {
@@ -588,9 +599,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         final Vector3f euler = new Vector3f();
         qRotation.getEulerAnglesYXZ(euler);
 
-        float newYaw = (float) Math.toDegrees(-euler.y);
-        float newPitch = (float) Math.toDegrees(euler.x);
+        final Vector3f forward = new Vector3f(0.0F, 0.0F, 1.0F);
+        qRotation.transform(forward);
+        final double horiz = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
+
+        headingYaw = Mth.wrapDegrees(headingYaw + (float) Math.toDegrees(yawRateRadPerSec * dt));
+        float newPitch = (float) Math.toDegrees(Math.atan2(-forward.y, horiz));
         float newRoll = (float) Math.toDegrees(euler.z);
+        float newYaw = resolveStableYaw(forward, newPitch);
 
         if (Float.isNaN(newYaw)) newYaw = this.getYRot();
         if (Float.isNaN(newPitch)) newPitch = this.getXRot();
@@ -626,6 +642,16 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
 
         setDeltaMovement(linearVelocity.scale(dt));
+    }
+
+    private float resolveStableYaw(final Vector3f forward, final float newPitch) {
+        final double horiz = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
+        if (horiz > YAW_SINGULARITY_HORIZ_EPS && Math.abs(newPitch) < YAW_SINGULARITY_PITCH_DEG) {
+            final float computed = (float) Math.toDegrees(Math.atan2(-forward.x, forward.z));
+            headingYaw = Mth.wrapDegrees(computed);
+            return headingYaw;
+        }
+        return headingYaw;
     }
 
     private float applyExpo(float input, float expo) {
@@ -757,32 +783,21 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (controller != null) {
             endRemoteControl(controller);
         }
-        spawnFireballEffect();
+        spawnTntEffect();
         discard();
     }
 
-    private void spawnFireballEffect() {
+    private void spawnTntEffect() {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
-        final int power = Math.max(1, Math.round(FPV_FIREBALL_POWER));
         final ServerPlayer controller = getController();
-        LargeFireball fireball;
-        if (controller != null) {
-            fireball = new LargeFireball(serverLevel, controller, 0.0D, 0.0D, 0.0D, power);
-        } else {
-            final Entity entity = EntityType.FIREBALL.create(serverLevel);
-            if (!(entity instanceof LargeFireball created)) {
-                return;
-            }
-            fireball = created;
-        }
-        fireball.moveTo(getX(), getY(), getZ(), 0.0F, 0.0F);
-        fireball.setDeltaMovement(Vec3.ZERO);
-        DroneExplosionLimiter.markNoBlockDamage(fireball);
-        serverLevel.addFreshEntity(fireball);
-        serverLevel.explode(fireball, getX(), getY(), getZ(), FPV_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
-        fireball.discard();
+        final PrimedTnt tnt = new PrimedTnt(serverLevel, getX(), getY(), getZ(), controller);
+        tnt.setFuse(0);
+        DroneExplosionLimiter.markNoBlockDamage(tnt);
+        serverLevel.addFreshEntity(tnt);
+        serverLevel.explode(tnt, getX(), getY(), getZ(), FPV_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
+        tnt.discard();
     }
 
     private void dropAsItem() {
@@ -850,6 +865,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!isController(sender)) {
             return;
         }
+        if (sender.isShiftKeyDown()) {
+            return;
+        }
         endRemoteControl(sender);
     }
 
@@ -867,6 +885,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (owner == null) {
             owner = player.getUUID();
         }
+        if (!isWithinPlayerChunkRange(player)) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.translatable("message.fullfud.fpv.out_of_range"), true);
+            return false;
+        }
         if (!hasLinkedGoggles(player) && !ensureLinkedGoggles(player)) {
             player.displayClientMessage(net.minecraft.network.chat.Component.translatable("message.fullfud.fpv.need_goggles"), true);
             return false;
@@ -882,6 +904,21 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         syncViewCenter(player);
         com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkRefresh(player);
         return true;
+    }
+
+    private boolean isWithinPlayerChunkRange(final ServerPlayer player) {
+        if (player == null || !(level() instanceof ServerLevel serverLevel)) {
+            return false;
+        }
+        if (player.level() != level()) {
+            return false;
+        }
+        final int viewDistance = Math.max(2, serverLevel.getServer().getPlayerList().getViewDistance());
+        final ChunkPos playerChunk = player.chunkPosition();
+        final ChunkPos droneChunk = this.chunkPosition();
+        final int dx = Math.abs(playerChunk.x - droneChunk.x);
+        final int dz = Math.abs(playerChunk.z - droneChunk.z);
+        return Math.max(dx, dz) <= viewDistance;
     }
 
     public void endRemoteControl(final ServerPlayer player) {
@@ -953,11 +990,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return;
         }
         final ChunkPos chunkPos = this.chunkPosition();
-        if (lastSentViewCenter == null || !lastSentViewCenter.equals(chunkPos)) {
+        final boolean centerChanged = lastSentViewCenter == null || !lastSentViewCenter.equals(chunkPos);
+        if (centerChanged) {
             player.connection.send(new ClientboundSetChunkCacheCenterPacket(chunkPos.x, chunkPos.z));
             lastSentViewCenter = chunkPos;
         }
-        com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkTracking(player);
+        if (centerChanged || (tickCount % 20 == 0)) {
+            com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkTracking(player);
+        }
     }
 
     private void resetViewCenter(final ServerPlayer player) {
@@ -999,7 +1039,14 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (player == null) {
             return;
         }
-        player.getPersistentData().remove(PLAYER_REMOTE_TAG);
+        final CompoundTag root = player.getPersistentData();
+        if (!root.contains(PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
+            return;
+        }
+        final CompoundTag tag = root.getCompound(PLAYER_REMOTE_TAG);
+        tag.putLong("FreezeUntil", player.level().getGameTime() + 60);
+        tag.putBoolean("FreezeOnly", true);
+        root.put(PLAYER_REMOTE_TAG, tag);
     }
 
     public void forceReleaseControlFor(final UUID playerId) {
@@ -1293,13 +1340,28 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 final Vector3f euler = new Vector3f();
                 currentQ.getEulerAnglesYXZ(euler);
 
-                drone.setYRot((float) Math.toDegrees(-euler.y));
-                drone.setXRot((float) Math.toDegrees(euler.x));
-                drone.droneRoll = (float) Math.toDegrees(euler.z);
+                final Vector3f forward = new Vector3f(0.0F, 0.0F, 1.0F);
+                currentQ.transform(forward);
+                final double horiz = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
+
+                drone.headingYaw = Mth.wrapDegrees((float) drone.lerpYRot);
+                float newPitch = (float) Math.toDegrees(Math.atan2(-forward.y, horiz));
+                float newRoll = (float) Math.toDegrees(euler.z);
+                float newYaw = drone.resolveStableYaw(forward, newPitch);
+
+                if (Float.isNaN(newYaw)) newYaw = drone.getYRot();
+                if (Float.isNaN(newPitch)) newPitch = drone.getXRot();
+                if (Float.isNaN(newRoll)) newRoll = (float) drone.droneRoll;
+
+                drone.setYRot(Mth.wrapDegrees(newYaw));
+                drone.setXRot(Mth.wrapDegrees(newPitch));
+                drone.droneRoll = Mth.wrapDegrees(newRoll);
+                drone.qRotation.set(currentQ);
 
                 drone.lerpSteps--;
             } else {
                 drone.droneRoll = Mth.rotLerp(0.5F, (float) drone.droneRoll, targetRoll);
+                drone.updateQuaternionFromEuler();
             }
 
             drone.setRot(drone.getYRot(), drone.getXRot());

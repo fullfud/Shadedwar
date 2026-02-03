@@ -29,6 +29,11 @@ public final class RemoteControlFailsafe {
     private static final String TAG_ORIGIN_YAW = "OriginYaw";
     private static final String TAG_ORIGIN_PITCH = "OriginPitch";
     private static final double ANCHOR_EPSILON_SQR = 0.0004D;
+    private static final double HEIGHT_EPSILON = 0.01D;
+    private static final String TAG_FREEZE_UNTIL = "FreezeUntil";
+    private static final String TAG_FREEZE_ONLY = "FreezeOnly";
+    private static final int POST_FREEZE_TICKS = 60;
+    private static final int CHUNK_TRACK_INTERVAL_TICKS = 20;
     private static java.lang.reflect.Method chunkUpdateMethod;
     private static java.lang.reflect.Field chunkMapField;
     private static java.lang.reflect.Method chunkMapUpdatePlayerStatusMethod;
@@ -45,21 +50,41 @@ public final class RemoteControlFailsafe {
 
         if (root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG);
-            if (player.containerMenu instanceof ShahedMonitorMenu) {
-                keepPlayerStationary(player, tag);
+            final boolean active = player.containerMenu instanceof ShahedMonitorMenu;
+            final boolean postFreeze = isPostFreezeActive(player, tag);
+            if (active) {
+                clearPostFreeze(tag);
+                keepPlayerHeight(player, tag);
+            } else if (postFreeze) {
+                keepPlayerHeight(player, tag);
+            } else if (tag.getBoolean(TAG_FREEZE_ONLY)) {
+                root.remove(ShahedDroneEntity.PLAYER_REMOTE_TAG);
             } else {
                 ShahedDroneEntity.forceRestoreFromPersistentData(player, tag);
-                root.remove(ShahedDroneEntity.PLAYER_REMOTE_TAG);
+                startPostFreeze(player, tag);
+                if (!isPostFreezeActive(player, tag)) {
+                    root.remove(ShahedDroneEntity.PLAYER_REMOTE_TAG);
+                }
             }
         }
 
         if (root.contains(FpvDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(FpvDroneEntity.PLAYER_REMOTE_TAG);
-            if (!isFpvControlActive(player, tag)) {
-                FpvDroneEntity.forceRestoreFromPersistentData(player, tag);
+            final boolean active = isFpvControlActive(player, tag);
+            final boolean postFreeze = isPostFreezeActive(player, tag);
+            if (active) {
+                clearPostFreeze(tag);
+                keepPlayerHeight(player, tag);
+            } else if (postFreeze) {
+                keepPlayerHeight(player, tag);
+            } else if (tag.getBoolean(TAG_FREEZE_ONLY)) {
                 root.remove(FpvDroneEntity.PLAYER_REMOTE_TAG);
             } else {
-                keepPlayerStationary(player, tag);
+                FpvDroneEntity.forceRestoreFromPersistentData(player, tag);
+                startPostFreeze(player, tag);
+                if (!isPostFreezeActive(player, tag)) {
+                    root.remove(FpvDroneEntity.PLAYER_REMOTE_TAG);
+                }
             }
         }
     }
@@ -111,13 +136,11 @@ public final class RemoteControlFailsafe {
         return false;
     }
 
-    private static void keepPlayerStationary(final ServerPlayer player, final CompoundTag tag) {
+    private static void keepPlayerHeight(final ServerPlayer player, final CompoundTag tag) {
         if (player == null || tag == null) {
             return;
         }
-        if (!tag.contains(TAG_ORIGIN_X, Tag.TAG_DOUBLE)
-            || !tag.contains(TAG_ORIGIN_Y, Tag.TAG_DOUBLE)
-            || !tag.contains(TAG_ORIGIN_Z, Tag.TAG_DOUBLE)) {
+        if (!tag.contains(TAG_ORIGIN_Y, Tag.TAG_DOUBLE)) {
             return;
         }
         if (tag.contains(TAG_ORIGIN_DIM, Tag.TAG_STRING)) {
@@ -127,23 +150,41 @@ public final class RemoteControlFailsafe {
             }
         }
 
-        final double x = tag.getDouble(TAG_ORIGIN_X);
         final double y = tag.getDouble(TAG_ORIGIN_Y);
-        final double z = tag.getDouble(TAG_ORIGIN_Z);
-        final double dx = player.getX() - x;
-        final double dy = player.getY() - y;
-        final double dz = player.getZ() - z;
-        if (dx * dx + dy * dy + dz * dz > ANCHOR_EPSILON_SQR) {
-            final float yaw = tag.contains(TAG_ORIGIN_YAW, Tag.TAG_FLOAT) ? tag.getFloat(TAG_ORIGIN_YAW) : player.getYRot();
-            final float pitch = tag.contains(TAG_ORIGIN_PITCH, Tag.TAG_FLOAT) ? tag.getFloat(TAG_ORIGIN_PITCH) : player.getXRot();
-            player.teleportTo(x, y, z);
-            player.setYRot(yaw);
-            player.setXRot(pitch);
+        if (Math.abs(player.getY() - y) > HEIGHT_EPSILON) {
+            player.teleportTo(player.getX(), y, player.getZ());
         }
-        player.setDeltaMovement(Vec3.ZERO);
+        final Vec3 vel = player.getDeltaMovement();
+        player.setDeltaMovement(vel.x, 0.0D, vel.z);
         player.fallDistance = 0.0F;
         player.hurtMarked = true;
-        forceChunkTracking(player);
+        if (player.tickCount % CHUNK_TRACK_INTERVAL_TICKS == 0) {
+            forceChunkTracking(player);
+        }
+    }
+
+    private static boolean isPostFreezeActive(final ServerPlayer player, final CompoundTag tag) {
+        if (player == null || tag == null || !tag.contains(TAG_FREEZE_UNTIL, Tag.TAG_LONG)) {
+            return false;
+        }
+        final long until = tag.getLong(TAG_FREEZE_UNTIL);
+        return player.level().getGameTime() <= until;
+    }
+
+    private static void startPostFreeze(final ServerPlayer player, final CompoundTag tag) {
+        if (player == null || tag == null) {
+            return;
+        }
+        tag.putLong(TAG_FREEZE_UNTIL, player.level().getGameTime() + POST_FREEZE_TICKS);
+        tag.putBoolean(TAG_FREEZE_ONLY, true);
+    }
+
+    private static void clearPostFreeze(final CompoundTag tag) {
+        if (tag == null) {
+            return;
+        }
+        tag.remove(TAG_FREEZE_UNTIL);
+        tag.remove(TAG_FREEZE_ONLY);
     }
 
     public static void forceChunkTracking(final ServerPlayer player) {

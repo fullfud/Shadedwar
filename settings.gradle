@@ -7,3 +7,6 @@ pluginManagement {
 }
 
 rootProject.name = 'Shadedwar'
+
+include("lattice")
+project(":lattice").projectDir = file("lattice")

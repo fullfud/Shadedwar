@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "dev.lazurite.lattice.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "common.SpectateCommandMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

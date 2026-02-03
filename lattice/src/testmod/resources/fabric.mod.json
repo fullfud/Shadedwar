@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "lattice-testmod",
+  "version": "$version",
+  "environment": "*",
+  "mixins": [
+    {
+      "config": "lattice-testmod.common.mixins.json",
+      "environment": "*"
+    },
+    {
+      "config": "toolbox.mixins.json",
+      "environment": "*"
+    }
+  ],
+  "depends": {
+    "java": "17",
+    "minecraft": "$min_minecraft_version",
+    "fabricloader": "$min_fabric_loader_version"
+  },
+  "name": "Lattice Test",
+  "description": "A test mod for Lattice.",
+  "authors": [ "The Lazurite Team" ],
+  "contact": {
+    "homepage": "https://lazurite.dev",
+    "issues": "https://github.com/LazuriteMC/Lattice/issues",
+    "sources": "https://github.com/LazuriteMC/Lattice"
+  },
+  "license": "MIT",
+  "icon": "assets/lattice/icon.png",
+  "custom": {
+    "modmenu": {
+      "links": {
+        "modmenu.discord": "https://discord.gg/NNPPHN7b3P"
+      }
+    }
+  }
+}

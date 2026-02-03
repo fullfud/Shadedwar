@@ -294,7 +294,7 @@ public final class FpvClientHandler {
         mouseAccumY = 0;
 
         float yawInput = axis(FPV_YAW_LEFT.isDown(), FPV_YAW_RIGHT.isDown());
-        final float throttleDelta = axis(minecraft.options.keyJump.isDown(), minecraft.options.keyShift.isDown());
+        final boolean jumpDown = minecraft.options.keyJump.isDown();
 
         if (controllerState.present()) {
             pitchInput = controllerState.pitch();
@@ -302,14 +302,12 @@ public final class FpvClientHandler {
             yawInput = controllerState.yaw();
         }
 
-        if (Math.abs(throttleDelta) > 0.001F) {
-            throttleDemand = Mth.clamp(throttleDemand + throttleDelta * 0.02F, 0.0F, 1.0F);
-        }
-
         if (controllerState.present() && controllerState.hasThrottle()) {
             final double slew = FullfudClientConfig.CLIENT.fpvControllerThrottleSlew.get();
             final float a = (float) Mth.clamp(1.0D - slew, 0.0D, 1.0D);
             throttleDemand = Mth.lerp(a, throttleDemand, Mth.clamp(controllerState.throttle(), 0.0F, 1.0F));
+        } else {
+            throttleDemand = jumpDown ? 1.0F : 0.0F;
         }
 
         byte armAction = 0;

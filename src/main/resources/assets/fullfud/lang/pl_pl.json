@@ -18,6 +18,7 @@
   "message.fullfud.monitor.in_use": "Shahed jest już kontrolowany.",
   "message.fullfud.monitor.open_failed": "Nie udało się otworzyć monitora Shahed.",
   "message.fullfud.monitor.turn": "ZAWRÓĆ",
+  "message.fullfud.fpv.out_of_range": "Dron FPV jest poza zasięgiem wczytanych chunków.",
   "screen.fullfud.monitor.no_signal": "BRAK SYGNAŁU WIDEO",
   "key.categories.fullfud": "Sterowanie Shahed",
   "key.fullfud.power_up": "Zwiększ moc",

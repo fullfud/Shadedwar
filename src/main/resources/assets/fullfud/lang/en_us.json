@@ -22,6 +22,7 @@
   "message.fullfud.fpv.linked": "Controller linked to FPV drone.",
   "message.fullfud.fpv.link_cleared": "Controller link cleared.",
   "message.fullfud.fpv.need_goggles": "Link and wear FPV goggles for this drone to take control.",
+  "message.fullfud.fpv.out_of_range": "FPV drone is outside your loaded chunks.",
   "message.fullfud.shahed.picked_up": "Shahed-136 retrieved.",
   "message.fullfud.shahed.armed": "Shahed is armed and cannot be recovered.",
   "message.fullfud.monitor.in_use": "Shahed is already controlled.",

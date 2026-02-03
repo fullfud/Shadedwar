@@ -63,8 +63,11 @@ public class ShahedMonitorMenu extends AbstractContainerMenu {
 
         final CompoundTag root = serverPlayer.getPersistentData();
         if (root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
-            ShahedDroneEntity.forceRestoreFromPersistentData(serverPlayer, root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG));
-            root.remove(ShahedDroneEntity.PLAYER_REMOTE_TAG);
+            final CompoundTag tag = root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG);
+            ShahedDroneEntity.forceRestoreFromPersistentData(serverPlayer, tag);
+            tag.putLong("FreezeUntil", serverPlayer.level().getGameTime() + 60);
+            tag.putBoolean("FreezeOnly", true);
+            root.put(ShahedDroneEntity.PLAYER_REMOTE_TAG, tag);
         }
     }
 

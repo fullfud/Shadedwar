@@ -1,0 +1,24 @@
+{
+  "minVersion": "0.8",
+  "compatibilityLevel": "JAVA_17",
+  "required": true,
+  "refmap": "lattice.refmap.json",
+  "package": "dev.lazurite.lattice.impl.mixin",
+  "mixins": [
+    "core.level.ServerLevelMixin",
+    "core.player.PlayerMixin",
+    "core.player.ServerPlayerMixin",
+    "core.point.BlockPosMixin",
+    "core.point.ChunkPosMixin",
+    "core.point.EntityMixin",
+    "core.point.SectionPosMixin",
+    "feature.ServerPlayerMixin",
+    "fix.chunk.ChunkMapMixin",
+    "fix.misc.PlayerListMixin",
+    "fix.misc.ServerPlayerMixin",
+    "fix.misc.TrackedEntityMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

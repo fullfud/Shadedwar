@@ -18,6 +18,7 @@
   "message.fullfud.monitor.in_use": "Shahed wird bereits gesteuert.",
   "message.fullfud.monitor.open_failed": "Shahed-Monitor konnte nicht geöffnet werden.",
   "message.fullfud.monitor.turn": "UMDREHEN",
+  "message.fullfud.fpv.out_of_range": "FPV-Drohne ist außerhalb deiner geladenen Chunks.",
   "screen.fullfud.monitor.no_signal": "KEIN VIDEOSIGNAL",
   "key.categories.fullfud": "Shahed-Steuerung",
   "key.fullfud.power_up": "Leistung erhöhen",

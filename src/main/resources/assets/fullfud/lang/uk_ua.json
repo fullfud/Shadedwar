@@ -18,6 +18,7 @@
   "message.fullfud.monitor.in_use": "Шахед уже під контролем.",
   "message.fullfud.monitor.open_failed": "Не вдалося відкрити монітор Shahed.",
   "message.fullfud.monitor.turn": "РОЗВЕРНИСЯ",
+  "message.fullfud.fpv.out_of_range": "FPV-дрон поза межами завантажених чанків.",
   "screen.fullfud.monitor.no_signal": "НЕМАЄ ВІДЕОСИГНАЛУ",
   "key.categories.fullfud": "Керування Shahed",
   "key.fullfud.power_up": "Збільшити потужність",

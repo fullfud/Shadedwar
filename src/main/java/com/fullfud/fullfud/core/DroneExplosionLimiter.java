@@ -2,7 +2,6 @@ package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.FullfudMod;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.projectile.LargeFireball;
 import net.minecraftforge.event.level.ExplosionEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -20,19 +19,19 @@ public final class DroneExplosionLimiter {
             return;
         }
         final Entity exploder = event.getExplosion().getExploder();
-        if (!(exploder instanceof LargeFireball fireball)) {
+        if (exploder == null) {
             return;
         }
-        if (!fireball.getPersistentData().getBoolean(TAG_NO_BLOCK_DAMAGE)) {
+        if (!exploder.getPersistentData().getBoolean(TAG_NO_BLOCK_DAMAGE)) {
             return;
         }
         event.getAffectedBlocks().clear();
     }
 
-    public static void markNoBlockDamage(final LargeFireball fireball) {
-        if (fireball == null) {
+    public static void markNoBlockDamage(final Entity entity) {
+        if (entity == null) {
             return;
         }
-        fireball.getPersistentData().putBoolean(TAG_NO_BLOCK_DAMAGE, true);
+        entity.getPersistentData().putBoolean(TAG_NO_BLOCK_DAMAGE, true);
     }
 }

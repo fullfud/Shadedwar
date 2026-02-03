@@ -1,0 +1,107 @@
+plugins {
+    id "net.minecraftforge.gradle" version "6.0.+"
+    id "org.spongepowered.mixin" version "0.7.+"
+    id "maven-publish"
+    id "java"
+}
+
+group = project.maven_group
+version = project.mod_version
+
+base {
+    archivesName = project.archives_base_name
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    withSourcesJar()
+}
+
+minecraft {
+    mappings channel: "official", version: project.minecraft_version
+    accessTransformer = file("src/main/resources/META-INF/accesstransformer.cfg")
+
+    runs {
+        client {
+            workingDirectory project.file("run")
+            property "forge.logging.console.level", "info"
+            mods {
+                lattice {
+                    source sourceSets.main
+                }
+            }
+        }
+        server {
+            workingDirectory project.file("run")
+            property "forge.logging.console.level", "info"
+            mods {
+                lattice {
+                    source sourceSets.main
+                }
+            }
+        }
+    }
+}
+
+mixin {
+    add sourceSets.main, "lattice.refmap.json"
+    config "lattice.common.mixins.json"
+    config "lattice.client.mixins.json"
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}"
+    annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "mod_id", project.mod_id
+    inputs.property "mod_name", project.mod_name
+    inputs.property "mod_author", project.mod_author
+    inputs.property "mod_description", project.mod_description
+    inputs.property "minecraft_version", project.minecraft_version
+    inputs.property "forge_version_range", project.forge_version_range
+    inputs.property "loader_version_range", project.loader_version_range
+
+    filesMatching(["META-INF/mods.toml", "pack.mcmeta"]) {
+        expand(
+            "version": project.version,
+            "mod_id": project.mod_id,
+            "mod_name": project.mod_name,
+            "mod_author": project.mod_author,
+            "mod_description": project.mod_description,
+            "minecraft_version": project.minecraft_version,
+            "forge_version_range": project.forge_version_range,
+            "loader_version_range": project.loader_version_range
+        )
+    }
+}
+
+jar {
+    from "LICENSE"
+    manifest {
+        attributes([
+            "MixinConfigs": "lattice.common.mixins.json,lattice.client.mixins.json"
+        ])
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release = 17
+}
+
+publishing {
+    publications {
+        create("mavenJava", MavenPublication) {
+            from components.java
+        }
+    }
+}

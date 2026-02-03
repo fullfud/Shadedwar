@@ -1,0 +1,136 @@
+{
+  "mappings": {
+    "dev/lazurite/lattice/impl/client/mixin/fix/chunk/StorageMixin": {
+      "net.minecraft.client.multiplayer.ClientChunkCache$Storage": "net/minecraft/client/multiplayer/ClientChunkCache$Storage",
+      "getIndex": "Lnet/minecraft/client/multiplayer/ClientChunkCache$Storage;m_104481_(II)I",
+      "inRange": "Lnet/minecraft/client/multiplayer/ClientChunkCache$Storage;m_104500_(II)Z"
+    },
+    "dev/lazurite/lattice/impl/client/mixin/feature/render/LevelRendererMixin": {
+      "renderLevel": "Lnet/minecraft/client/renderer/LevelRenderer;m_109599_(Lcom/mojang/blaze3d/vertex/PoseStack;FJZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lnet/minecraft/client/renderer/LightTexture;Lorg/joml/Matrix4f;)V",
+      "Lnet/minecraft/client/Camera;isDetached()Z": "Lnet/minecraft/client/Camera;m_90594_()Z"
+    },
+    "dev/lazurite/lattice/impl/client/mixin/fix/render/LevelRendererMixin": {
+      "Lnet/minecraft/client/player/LocalPlayer;getX()D": "Lnet/minecraft/client/player/LocalPlayer;m_20185_()D",
+      "setupRender": "Lnet/minecraft/client/renderer/LevelRenderer;m_194338_(Lnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/culling/Frustum;ZZ)V",
+      "Lnet/minecraft/client/player/LocalPlayer;getY()D": "Lnet/minecraft/client/player/LocalPlayer;m_20186_()D",
+      "Lnet/minecraft/client/player/LocalPlayer;getZ()D": "Lnet/minecraft/client/player/LocalPlayer;m_20189_()D"
+    },
+    "dev/lazurite/lattice/impl/mixin/fix/misc/PlayerListMixin": {
+      "broadcast": "Lnet/minecraft/server/players/PlayerList;m_11241_(Lnet/minecraft/world/entity/player/Player;DDDDLnet/minecraft/resources/ResourceKey;Lnet/minecraft/network/protocol/Packet;)V"
+    },
+    "dev/lazurite/lattice/impl/mixin/fix/misc/ServerPlayerMixin": {
+      "Lnet/minecraft/server/level/ServerPlayer;absMoveTo(DDDFF)V": "Lnet/minecraft/server/level/ServerPlayer;m_19890_(DDDFF)V",
+      "setCamera": "Lnet/minecraft/server/level/ServerPlayer;m_9213_(Lnet/minecraft/world/entity/Entity;)V",
+      "Lnet/minecraft/server/level/ServerPlayer;teleportTo(Lnet/minecraft/server/level/ServerLevel;DDDLjava/util/Set;FF)Z": "Lnet/minecraft/server/level/ServerPlayer;m_264318_(Lnet/minecraft/server/level/ServerLevel;DDDLjava/util/Set;FF)Z",
+      "tick": "Lnet/minecraft/server/level/ServerPlayer;m_8119_()V"
+    },
+    "dev/lazurite/lattice/impl/client/mixin/fix/render/CameraMixin": {
+      "setup": "Lnet/minecraft/client/Camera;m_90575_(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/world/entity/Entity;ZZF)V"
+    },
+    "dev/lazurite/lattice/impl/mixin/fix/chunk/ChunkMapMixin": {
+      "move": "Lnet/minecraft/server/level/ChunkMap;m_140184_(Lnet/minecraft/server/level/ServerPlayer;)V",
+      "lambda$setViewDistance$51(Lnet/minecraft/world/level/ChunkPos;ILorg/apache/commons/lang3/mutable/MutableObject;Lnet/minecraft/server/level/ServerPlayer;)V": "Lnet/minecraft/server/level/ChunkMap;m_214860_(Lnet/minecraft/world/level/ChunkPos;ILorg/apache/commons/lang3/mutable/MutableObject;Lnet/minecraft/server/level/ServerPlayer;)V",
+      "Lnet/minecraft/server/level/ChunkMap;isChunkInRange(IIIII)Z": "Lnet/minecraft/server/level/ChunkMap;m_200878_(IIIII)Z",
+      "Lnet/minecraft/server/level/ChunkMap;isChunkOnRangeBorder(IIIII)Z": "Lnet/minecraft/server/level/ChunkMap;m_183828_(IIIII)Z",
+      "updatePlayerPos": "Lnet/minecraft/server/level/ChunkMap;m_140373_(Lnet/minecraft/server/level/ServerPlayer;)Lnet/minecraft/core/SectionPos;",
+      "Lnet/minecraft/core/SectionPos;x()I": "Lnet/minecraft/core/SectionPos;m_123170_()I",
+      "Lnet/minecraft/server/level/ServerPlayer;getBlockZ()I": "Lnet/minecraft/server/level/ServerPlayer;m_146907_()I",
+      "euclideanDistanceSquared": "Lnet/minecraft/server/level/ChunkMap;m_140226_(Lnet/minecraft/world/level/ChunkPos;Lnet/minecraft/world/entity/Entity;)D",
+      "Lnet/minecraft/server/level/ChunkMap$DistanceManager;removePlayer(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V": "Lnet/minecraft/server/level/ChunkMap$DistanceManager;m_140828_(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V",
+      "Lnet/minecraft/server/level/ServerPlayer;getBlockX()I": "Lnet/minecraft/server/level/ServerPlayer;m_146903_()I",
+      "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V": "Lnet/minecraft/server/level/ChunkMap;m_183754_(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V",
+      "Lnet/minecraft/server/level/ChunkMap$DistanceManager;addPlayer(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V": "Lnet/minecraft/server/level/ChunkMap$DistanceManager;m_140802_(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V",
+      "Lnet/minecraft/core/SectionPos;z()I": "Lnet/minecraft/core/SectionPos;m_123222_()I",
+      "Lnet/minecraft/core/SectionPos;of(Lnet/minecraft/world/level/entity/EntityAccess;)Lnet/minecraft/core/SectionPos;": "Lnet/minecraft/core/SectionPos;m_235861_(Lnet/minecraft/world/level/entity/EntityAccess;)Lnet/minecraft/core/SectionPos;",
+      "updatePlayerStatus": "Lnet/minecraft/server/level/ChunkMap;m_140192_(Lnet/minecraft/server/level/ServerPlayer;Z)V",
+      "Lnet/minecraft/server/level/ServerPlayer;getLastSectionPos()Lnet/minecraft/core/SectionPos;": "Lnet/minecraft/server/level/ServerPlayer;m_8965_()Lnet/minecraft/core/SectionPos;",
+      "getPlayers": "Lnet/minecraft/server/level/ChunkMap;m_183262_(Lnet/minecraft/world/level/ChunkPos;Z)Ljava/util/List;"
+    },
+    "dev/lazurite/lattice/impl/mixin/fix/misc/TrackedEntityMixin": {
+      "updatePlayer": "Lnet/minecraft/server/level/ChunkMap$TrackedEntity;m_140497_(Lnet/minecraft/server/level/ServerPlayer;)V",
+      "net.minecraft.server.level.ChunkMap$TrackedEntity": "net/minecraft/server/level/ChunkMap$TrackedEntity"
+    },
+    "dev/lazurite/lattice/impl/client/mixin/fix/render/MinecraftMixin": {
+      "Lnet/minecraft/client/player/LocalPlayer;getBlockY()I": "Lnet/minecraft/client/player/LocalPlayer;m_146904_()I",
+      "Lnet/minecraft/client/player/LocalPlayer;getBlockZ()I": "Lnet/minecraft/client/player/LocalPlayer;m_146907_()I",
+      "Lnet/minecraft/client/player/LocalPlayer;getBlockX()I": "Lnet/minecraft/client/player/LocalPlayer;m_146903_()I",
+      "tick": "Lnet/minecraft/client/Minecraft;m_91398_()V"
+    },
+    "dev/lazurite/lattice/impl/mixin/feature/ServerPlayerMixin": {
+      "setCamera": "Lnet/minecraft/server/level/ServerPlayer;m_9213_(Lnet/minecraft/world/entity/Entity;)V",
+      "Lnet/minecraft/server/level/ServerPlayer;camera:Lnet/minecraft/world/entity/Entity;": "Lnet/minecraft/server/level/ServerPlayer;f_8926_:Lnet/minecraft/world/entity/Entity;",
+      "Lnet/minecraft/server/network/ServerGamePacketListenerImpl;send(Lnet/minecraft/network/protocol/Packet;)V": "Lnet/minecraft/server/network/ServerGamePacketListenerImpl;m_9829_(Lnet/minecraft/network/protocol/Packet;)V"
+    },
+    "dev/lazurite/lattice/impl/mixin/access/IChunkMapMixin": {
+      "viewDistance": "f_140126_:I"
+    }
+  },
+  "data": {
+    "searge": {
+      "dev/lazurite/lattice/impl/client/mixin/fix/chunk/StorageMixin": {
+        "net.minecraft.client.multiplayer.ClientChunkCache$Storage": "net/minecraft/client/multiplayer/ClientChunkCache$Storage",
+        "getIndex": "Lnet/minecraft/client/multiplayer/ClientChunkCache$Storage;m_104481_(II)I",
+        "inRange": "Lnet/minecraft/client/multiplayer/ClientChunkCache$Storage;m_104500_(II)Z"
+      },
+      "dev/lazurite/lattice/impl/client/mixin/feature/render/LevelRendererMixin": {
+        "renderLevel": "Lnet/minecraft/client/renderer/LevelRenderer;m_109599_(Lcom/mojang/blaze3d/vertex/PoseStack;FJZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lnet/minecraft/client/renderer/LightTexture;Lorg/joml/Matrix4f;)V",
+        "Lnet/minecraft/client/Camera;isDetached()Z": "Lnet/minecraft/client/Camera;m_90594_()Z"
+      },
+      "dev/lazurite/lattice/impl/client/mixin/fix/render/LevelRendererMixin": {
+        "Lnet/minecraft/client/player/LocalPlayer;getX()D": "Lnet/minecraft/client/player/LocalPlayer;m_20185_()D",
+        "setupRender": "Lnet/minecraft/client/renderer/LevelRenderer;m_194338_(Lnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/culling/Frustum;ZZ)V",
+        "Lnet/minecraft/client/player/LocalPlayer;getY()D": "Lnet/minecraft/client/player/LocalPlayer;m_20186_()D",
+        "Lnet/minecraft/client/player/LocalPlayer;getZ()D": "Lnet/minecraft/client/player/LocalPlayer;m_20189_()D"
+      },
+      "dev/lazurite/lattice/impl/mixin/fix/misc/PlayerListMixin": {
+        "broadcast": "Lnet/minecraft/server/players/PlayerList;m_11241_(Lnet/minecraft/world/entity/player/Player;DDDDLnet/minecraft/resources/ResourceKey;Lnet/minecraft/network/protocol/Packet;)V"
+      },
+      "dev/lazurite/lattice/impl/mixin/fix/misc/ServerPlayerMixin": {
+        "Lnet/minecraft/server/level/ServerPlayer;absMoveTo(DDDFF)V": "Lnet/minecraft/server/level/ServerPlayer;m_19890_(DDDFF)V",
+        "setCamera": "Lnet/minecraft/server/level/ServerPlayer;m_9213_(Lnet/minecraft/world/entity/Entity;)V",
+        "Lnet/minecraft/server/level/ServerPlayer;teleportTo(Lnet/minecraft/server/level/ServerLevel;DDDLjava/util/Set;FF)Z": "Lnet/minecraft/server/level/ServerPlayer;m_264318_(Lnet/minecraft/server/level/ServerLevel;DDDLjava/util/Set;FF)Z",
+        "tick": "Lnet/minecraft/server/level/ServerPlayer;m_8119_()V"
+      },
+      "dev/lazurite/lattice/impl/client/mixin/fix/render/CameraMixin": {
+        "setup": "Lnet/minecraft/client/Camera;m_90575_(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/world/entity/Entity;ZZF)V"
+      },
+      "dev/lazurite/lattice/impl/mixin/fix/chunk/ChunkMapMixin": {
+        "move": "Lnet/minecraft/server/level/ChunkMap;m_140184_(Lnet/minecraft/server/level/ServerPlayer;)V",
+        "lambda$setViewDistance$51(Lnet/minecraft/world/level/ChunkPos;ILorg/apache/commons/lang3/mutable/MutableObject;Lnet/minecraft/server/level/ServerPlayer;)V": "Lnet/minecraft/server/level/ChunkMap;m_214860_(Lnet/minecraft/world/level/ChunkPos;ILorg/apache/commons/lang3/mutable/MutableObject;Lnet/minecraft/server/level/ServerPlayer;)V",
+        "Lnet/minecraft/server/level/ChunkMap;isChunkInRange(IIIII)Z": "Lnet/minecraft/server/level/ChunkMap;m_200878_(IIIII)Z",
+        "Lnet/minecraft/server/level/ChunkMap;isChunkOnRangeBorder(IIIII)Z": "Lnet/minecraft/server/level/ChunkMap;m_183828_(IIIII)Z",
+        "updatePlayerPos": "Lnet/minecraft/server/level/ChunkMap;m_140373_(Lnet/minecraft/server/level/ServerPlayer;)Lnet/minecraft/core/SectionPos;",
+        "Lnet/minecraft/core/SectionPos;x()I": "Lnet/minecraft/core/SectionPos;m_123170_()I",
+        "Lnet/minecraft/server/level/ServerPlayer;getBlockZ()I": "Lnet/minecraft/server/level/ServerPlayer;m_146907_()I",
+        "euclideanDistanceSquared": "Lnet/minecraft/server/level/ChunkMap;m_140226_(Lnet/minecraft/world/level/ChunkPos;Lnet/minecraft/world/entity/Entity;)D",
+        "Lnet/minecraft/server/level/ChunkMap$DistanceManager;removePlayer(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V": "Lnet/minecraft/server/level/ChunkMap$DistanceManager;m_140828_(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V",
+        "Lnet/minecraft/server/level/ServerPlayer;getBlockX()I": "Lnet/minecraft/server/level/ServerPlayer;m_146903_()I",
+        "Lnet/minecraft/server/level/ChunkMap;updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V": "Lnet/minecraft/server/level/ChunkMap;m_183754_(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/level/ChunkPos;Lorg/apache/commons/lang3/mutable/MutableObject;ZZ)V",
+        "Lnet/minecraft/server/level/ChunkMap$DistanceManager;addPlayer(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V": "Lnet/minecraft/server/level/ChunkMap$DistanceManager;m_140802_(Lnet/minecraft/core/SectionPos;Lnet/minecraft/server/level/ServerPlayer;)V",
+        "Lnet/minecraft/core/SectionPos;z()I": "Lnet/minecraft/core/SectionPos;m_123222_()I",
+        "Lnet/minecraft/core/SectionPos;of(Lnet/minecraft/world/level/entity/EntityAccess;)Lnet/minecraft/core/SectionPos;": "Lnet/minecraft/core/SectionPos;m_235861_(Lnet/minecraft/world/level/entity/EntityAccess;)Lnet/minecraft/core/SectionPos;",
+        "updatePlayerStatus": "Lnet/minecraft/server/level/ChunkMap;m_140192_(Lnet/minecraft/server/level/ServerPlayer;Z)V",
+        "Lnet/minecraft/server/level/ServerPlayer;getLastSectionPos()Lnet/minecraft/core/SectionPos;": "Lnet/minecraft/server/level/ServerPlayer;m_8965_()Lnet/minecraft/core/SectionPos;",
+        "getPlayers": "Lnet/minecraft/server/level/ChunkMap;m_183262_(Lnet/minecraft/world/level/ChunkPos;Z)Ljava/util/List;"
+      },
+      "dev/lazurite/lattice/impl/mixin/fix/misc/TrackedEntityMixin": {
+        "updatePlayer": "Lnet/minecraft/server/level/ChunkMap$TrackedEntity;m_140497_(Lnet/minecraft/server/level/ServerPlayer;)V",
+        "net.minecraft.server.level.ChunkMap$TrackedEntity": "net/minecraft/server/level/ChunkMap$TrackedEntity"
+      },
+      "dev/lazurite/lattice/impl/client/mixin/fix/render/MinecraftMixin": {
+        "Lnet/minecraft/client/player/LocalPlayer;getBlockY()I": "Lnet/minecraft/client/player/LocalPlayer;m_146904_()I",
+        "Lnet/minecraft/client/player/LocalPlayer;getBlockZ()I": "Lnet/minecraft/client/player/LocalPlayer;m_146907_()I",
+        "Lnet/minecraft/client/player/LocalPlayer;getBlockX()I": "Lnet/minecraft/client/player/LocalPlayer;m_146903_()I",
+        "tick": "Lnet/minecraft/client/Minecraft;m_91398_()V"
+      },
+      "dev/lazurite/lattice/impl/mixin/feature/ServerPlayerMixin": {
+        "setCamera": "Lnet/minecraft/server/level/ServerPlayer;m_9213_(Lnet/minecraft/world/entity/Entity;)V",
+        "Lnet/minecraft/server/level/ServerPlayer;camera:Lnet/minecraft/world/entity/Entity;": "Lnet/minecraft/server/level/ServerPlayer;f_8926_:Lnet/minecraft/world/entity/Entity;",
+        "Lnet/minecraft/server/network/ServerGamePacketListenerImpl;send(Lnet/minecraft/network/protocol/Packet;)V": "Lnet/minecraft/server/network/ServerGamePacketListenerImpl;m_9829_(Lnet/minecraft/network/protocol/Packet;)V"
+      },
+      "dev/lazurite/lattice/impl/mixin/access/IChunkMapMixin": {
+        "viewDistance": "f_140126_:I"
+      }
+    }
+  }
+}
