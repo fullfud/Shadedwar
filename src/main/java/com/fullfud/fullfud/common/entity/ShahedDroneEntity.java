@@ -1556,6 +1556,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         if (controllingPlayer != null && !controllingPlayer.equals(player.getUUID())) {
             return false;
         }
+        if (!isWithinPlayerChunkRange(player)) {
+            player.displayClientMessage(Component.translatable("message.fullfud.fpv.out_of_range"), true);
+            return false;
+        }
         if (isOnLauncher()) {
             final ShahedLauncherEntity launcher = resolveLauncher();
             if (launcher != null) {
@@ -1584,6 +1588,21 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         setViewPoint(player, this);
         syncViewCenter(player);
         return true;
+    }
+
+    private boolean isWithinPlayerChunkRange(final ServerPlayer player) {
+        if (player == null || !(level() instanceof ServerLevel serverLevel)) {
+            return false;
+        }
+        if (player.level() != level()) {
+            return false;
+        }
+        final int viewDistance = Math.max(2, serverLevel.getServer().getPlayerList().getViewDistance());
+        final ChunkPos playerChunk = player.chunkPosition();
+        final ChunkPos droneChunk = this.chunkPosition();
+        final int dx = Math.abs(playerChunk.x - droneChunk.x);
+        final int dz = Math.abs(playerChunk.z - droneChunk.z);
+        return Math.max(dx, dz) <= viewDistance;
     }
 
     public void endRemoteControl(final ServerPlayer player) {
