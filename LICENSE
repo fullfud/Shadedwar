@@ -1,13 +1,98 @@
-Copyright (c) 2025 fullfud
+Fullfud Shaded War License (2026-02-04)
+Copyright (c) 2025-2026 fullfud
 
-Permission is granted to download, build, and use the Fullfud Shahed mod (Shaded War) solely for personal gameplay or for non-commercial servers whose total income does not exceed the actual out-of-pocket cost of hosting infrastructure, provided that any monetary support granted to such servers is purely voluntary and delivers no in-game or out-of-game consideration to the donor other than acknowledgment. Any other monetisation – including, but not limited to, sales of ranks, items, cosmetic advantages, access passes, paid queue priority, sponsorship placements, advertising inventory, subscription models, or bundled content – is strictly prohibited without prior written consent from fullfud.
+This license governs the mod known as "Fullfud Shahed mod (Shaded War)" and
+any associated source, assets, and binaries ("Software"). By downloading,
+building, installing, or using the Software, you accept this license.
 
-Redistribution of binary or source copies is permitted only if (1) this notice is included unchanged, (2) no fees are charged except unavoidable file-hosting charges that cannot exceed actual bandwidth expenses, and (3) recipients are clearly informed of the above non-commercial limitation before download.
+1) Owner Rights (fullfud)
+The copyright holder (fullfud) retains all rights. This license does not limit
+the owner in any way. fullfud has unrestricted rights to use, modify, sell,
+license, and distribute the Software.
 
-Derivative works (including ports, forks, and translations) are allowed only when the resulting project inherits this licence verbatim and prominently credits “Fullfud Shaded Mod by fullfud”. Any change to gameplay, assets, or code does not waive or diminish fullfud’s ownership rights.
+2) Standard Permission (non-commercial use only)
+Permission is granted to download, build, and use the Software solely for:
+  a) personal gameplay, or
+  b) non-commercial servers whose total income does not exceed the actual
+     out-of-pocket cost of hosting infrastructure.
 
-Full commercial rights, sublicensing, or integration into monetised modpacks, launchers, clients, or services are reserved exclusively to fullfud. The only standing exception is the FrontlineMC server network, which is granted a perpetual, worldwide, non-transferable, non-sublicensable licence to use, modify, and distribute the mod (and derivative builds) within its own infrastructure, including monetised offerings, subject to maintaining attribution to fullfud.
+Any monetary support for such servers must be voluntary and must not grant any
+in-game or out-of-game consideration beyond acknowledgement.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, OR NON-INFRINGEMENT. IN NO EVENT SHALL FULLFUD BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+All other monetization is prohibited without prior written consent from
+fullfud, including (but not limited to): selling ranks/items, paid access,
+queue priority, sponsorships/ads, subscriptions, or bundling in paid services.
 
-Any party that violates these terms automatically loses all rights granted herein and must remove the software from its systems within seven calendar days of receiving written notice. Rights may be reinstated only through a new written licence issued by fullfud.
+3) Redistribution
+Redistribution of source or binaries is allowed only if ALL of the following
+are true:
+  a) this license text is included unchanged,
+  b) no fees are charged except unavoidable file-hosting bandwidth costs,
+  c) recipients are clearly informed of the non-commercial limitation before
+     download, and
+  d) attribution is provided as "Fullfud Shaded Mod by fullfud".
+
+4) Derivative Works
+Derivative works (including ports, forks, translations, and edits to gameplay,
+assets, or code) are allowed only if:
+  a) the resulting project inherits this license verbatim, and
+  b) attribution is provided as "Fullfud Shaded Mod by fullfud".
+
+Any change does not waive or diminish fullfud's ownership rights.
+
+5) FrontlineMC Special License
+The FrontlineMC server network is granted a perpetual, worldwide,
+non-transferable, non-sublicensable license to use, modify, and distribute the
+Software (and derivative builds) within its own infrastructure, including
+monetized offerings, provided that attribution to fullfud is maintained.
+
+This permission applies only to the FrontlineMC network and its direct
+operators/administrators. It does not extend to third parties or resale.
+
+6) No Sublicense / No Transfer / No Implied Rights
+Except as explicitly stated, no rights are granted. You may not sublicense,
+transfer, assign, sell, lease, or otherwise convey any rights under this
+license. No patent, trademark, or other intellectual property rights are
+granted by implication, estoppel, or otherwise.
+
+7) No Circumvention / No Reverse Engineering / No Removal of Notices
+You may not remove, hide, or alter copyright notices, attribution, or license
+terms. You may not circumvent, disable, or interfere with any technical
+restrictions or license checks present in the Software. You may not reverse
+engineer, decompile, or disassemble the Software, except to the extent such
+restrictions are prohibited by applicable law.
+
+8) Trademarks / Endorsement
+The names "fullfud", "Fullfud", "Shaded War", "Shahed", and related logos or
+marks are trademarks of fullfud. You may not use these marks to imply
+endorsement or sponsorship without prior written consent.
+
+9) Compliance Requests
+If fullfud reasonably believes this license is being violated, fullfud may
+request confirmation of compliance. Failure to respond within seven (7) days
+may be treated as a material breach.
+
+10) Termination
+Any party that violates these terms automatically loses all rights granted by
+this license and must remove the Software from its systems within seven (7)
+calendar days of receiving written notice. Rights may be reinstated only
+through a new written license issued by fullfud.
+
+11) Governing Law and Venue
+This license is governed by the laws of the jurisdiction where fullfud
+primarily resides at the time of the dispute, and any legal action must be
+brought in courts located in that jurisdiction.
+
+12) Severability / No Waiver / Entire Agreement
+If any provision is held unenforceable, the remaining provisions remain in
+full force. Failure to enforce any provision is not a waiver. This license
+constitutes the entire agreement regarding the Software and supersedes any
+prior or contemporaneous communications.
+
+13) Warranty Disclaimer
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, TITLE, OR NON-INFRINGEMENT. IN NO EVENT
+SHALL FULLFUD BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
