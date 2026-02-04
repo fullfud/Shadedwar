@@ -322,6 +322,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             }
             this.bodyPitch = this.getXRot();
             this.bodyYaw = this.getYRot();
+            updateBoundingBox();
         }
 
         if (level().isClientSide() && isControlledByLocalInstance()) {
@@ -1098,6 +1099,11 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final double maxY = getY() + height;
         final AABB box = new AABB(minX, minY, minZ, maxX, maxY, maxZ);
         setBoundingBox(box);
+    }
+
+    @Override
+    public AABB getBoundingBoxForCulling() {
+        return super.getBoundingBoxForCulling().inflate(1.5D, 1.5D, 1.5D);
     }
 
     private double computeSignalDistance(final ServerPlayer viewer) {

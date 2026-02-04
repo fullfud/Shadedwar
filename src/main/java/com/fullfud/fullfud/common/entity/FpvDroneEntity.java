@@ -102,6 +102,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final double AIR_DRAG = 0.96D; 
     private static final double DISARM_GRAVITY_MULT = 1.6D;
     private static final double DISARM_AIR_DRAG = 0.98D;
+    private static final double LOW_THRUST_GRAVITY_MULT = 1.35D;
+    private static final double LOW_THRUST_AIR_DRAG = 0.975D;
+    private static final float LOW_THRUST_THRESHOLD = 0.05F;
     private static final double MAX_THRUST = 0.12D;
     private static final double ROTATION_RATE_DEG = 5.0D;
     private static final double YAW_RATE_DEG = 4.0D;
@@ -628,8 +631,13 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
         final Vec3 thrustVec = new Vec3(upVec.x, upVec.y, upVec.z).scale(thrustAccel);
 
-        final double gravityAccel = freeFall ? (GRAVITY_ACCEL * DISARM_GRAVITY_MULT) : GRAVITY_ACCEL;
-        final double drag = freeFall ? DISARM_AIR_DRAG : AIR_DRAG;
+        final boolean lowThrustFall = !freeFall && throttleOutput <= LOW_THRUST_THRESHOLD;
+        final double gravityAccel = freeFall
+            ? (GRAVITY_ACCEL * DISARM_GRAVITY_MULT)
+            : (lowThrustFall ? (GRAVITY_ACCEL * LOW_THRUST_GRAVITY_MULT) : GRAVITY_ACCEL);
+        final double drag = freeFall
+            ? DISARM_AIR_DRAG
+            : (lowThrustFall ? LOW_THRUST_AIR_DRAG : AIR_DRAG);
 
         Vec3 accel = thrustVec.add(0, -gravityAccel, 0);
 
