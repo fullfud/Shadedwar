@@ -953,15 +953,32 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private boolean isRemoteStateValidFor(final ServerPlayer sender) {
+        if (sender == null) {
+            return false;
+        }
         final CompoundTag root = sender.getPersistentData();
         if (!root.contains(PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
-            return false;
+            return tryRestoreRemoteTag(sender);
         }
         final CompoundTag tag = root.getCompound(PLAYER_REMOTE_TAG);
         if (!tag.hasUUID(PLAYER_TAG_DRONE)) {
+            return tryRestoreRemoteTag(sender);
+        }
+        if (!tag.getUUID(PLAYER_TAG_DRONE).equals(this.getUUID())) {
+            return tryRestoreRemoteTag(sender);
+        }
+        return true;
+    }
+
+    private boolean tryRestoreRemoteTag(final ServerPlayer sender) {
+        if (sender == null || controllingPlayer == null || !controllingPlayer.equals(sender.getUUID())) {
             return false;
         }
-        return tag.getUUID(PLAYER_TAG_DRONE).equals(this.getUUID());
+        if (controlSession == null) {
+            controlSession = new ControlSession(sender.level().dimension(), sender.position(), sender.getYRot(), sender.getXRot(), sender.gameMode.getGameModeForPlayer());
+        }
+        writeRemoteTag(sender);
+        return true;
     }
 
     private boolean canReceiveControl() {
