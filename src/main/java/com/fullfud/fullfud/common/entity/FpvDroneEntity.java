@@ -1352,7 +1352,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 currentQ.transform(forward);
                 final double horiz = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
 
-                drone.headingYaw = Mth.wrapDegrees((float) drone.lerpYRot);
                 float newPitch = (float) Math.toDegrees(Math.atan2(-forward.y, horiz));
                 float newRoll = (float) Math.toDegrees(euler.z);
                 float newYaw = drone.resolveStableYaw(forward, newPitch);
