@@ -64,8 +64,6 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.core.animation.AnimatableManager;
@@ -81,7 +79,6 @@ import java.util.List;
 
 public class FpvDroneEntity extends Entity implements GeoEntity {
     public static final String PLAYER_REMOTE_TAG = "fullfud_fpv_remote";
-    private static final Logger LOGGER = LogManager.getLogger(FpvDroneEntity.class);
 
     private static final String PLAYER_TAG_DRONE = "Drone";
     private static final String PLAYER_TAG_ORIGIN_DIM = "OriginDim";
@@ -177,7 +174,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private UUID queuedControllerId;
     private long lastControlReceiveTick;
     private long lastControlApplyTick;
-    private int controlOverwritesSinceLog;
 
     // Optional mode: keep drone chunks loaded even without a controlling player.
     private boolean keepChunksLoadedWithoutPlayer;
@@ -421,39 +417,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         updateControllerBinding();
         final ServerPlayer controller = getController();
         if (controller != null && entityData.get(DATA_CONTROLLER).isPresent()) {
-            if (tickCount % 60 == 0) {
-                final ChunkPos playerChunk = controller.chunkPosition();
-                final ChunkPos droneChunk = this.chunkPosition();
-                final boolean playerChunkLoaded = ((ServerLevel) level()).hasChunkAt(controller.blockPosition());
-                final boolean droneChunkLoaded = ((ServerLevel) level()).hasChunkAt(this.blockPosition());
-                final double dist = Math.sqrt(this.distanceToSqr(controller));
-                final int serverViewDistance = ((ServerLevel) level()).getServer().getPlayerList().getViewDistance();
-                final int viewDistance = getDistance();
-                final long receiveGap = lastControlReceiveTick == 0 ? -1L : (tickCount - lastControlReceiveTick);
-                final long applyGap = lastControlApplyTick == 0 ? -1L : (tickCount - lastControlApplyTick);
-                LOGGER.info(
-                    "FPV controller {} pos=({}, {}, {}) chunk=({}, {}) loaded={} | drone pos=({}, {}, {}) chunk=({}, {}) loaded={} | dist={} viewDist={} serverViewDist={} viewCenter={} playerTicket={} | signalQ={} signalDist={} occ={} occSteps={}/{} solid={} calcMs={} | ctrlGapRecv={} ctrlGapApply={} ctrlOverwrites={}",
-                    controller.getGameProfile().getName(),
-                    controller.getX(), controller.getY(), controller.getZ(),
-                    playerChunk.x, playerChunk.z, playerChunkLoaded,
-                    this.getX(), this.getY(), this.getZ(),
-                    droneChunk.x, droneChunk.z, droneChunkLoaded,
-                    dist, viewDistance, serverViewDistance,
-                    lastSentViewCenter,
-                    lastPlayerTicketPos,
-                    lastSignalQuality,
-                    lastSignalDistance,
-                    lastSignalOcclusion,
-                    lastSignalLoadedSteps,
-                    lastSignalSteps,
-                    lastSignalSolidSteps,
-                    lastSignalCalcNanos / 1_000_000.0D,
-                    receiveGap,
-                    applyGap,
-                    controlOverwritesSinceLog
-                );
-                controlOverwritesSinceLog = 0;
-            }
             ensurePlayerChunkTicket(controller);
             // Ensure the player is still bound to this drone as the active view point.
             if (controller instanceof LatticeServerPlayer lattice) {
@@ -1033,9 +996,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
         if (!isController(sender)) {
             return;
-        }
-        if (queuedControl != null && sender.getUUID().equals(queuedControllerId)) {
-            controlOverwritesSinceLog++;
         }
         queuedControl = packet;
         queuedControllerId = sender.getUUID();
