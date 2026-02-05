@@ -49,6 +49,7 @@ import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.GameType;
@@ -63,6 +64,8 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.core.animation.AnimatableManager;
@@ -78,6 +81,7 @@ import java.util.List;
 
 public class FpvDroneEntity extends Entity implements GeoEntity {
     public static final String PLAYER_REMOTE_TAG = "fullfud_fpv_remote";
+    private static final Logger LOGGER = LogManager.getLogger(FpvDroneEntity.class);
 
     private static final String PLAYER_TAG_DRONE = "Drone";
     private static final String PLAYER_TAG_ORIGIN_DIM = "OriginDim";
@@ -93,6 +97,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Optional<UUID>> DATA_CONTROLLER = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.OPTIONAL_UUID);
     private static final EntityDataAccessor<Integer> DATA_BATTERY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Float> DATA_SIGNAL_QUALITY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_SIGNAL_RANGE_SCALE = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_SIGNAL_PENETRATION_SCALE = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     
     private static final EntityDimensions DRONE_SIZE = EntityDimensions.scalable(0.7F, 0.25F);
     private static final RawAnimation IDLE_ANIM = RawAnimation.begin().thenLoop("idle");
@@ -119,7 +125,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     
     private static final int MAX_BATTERY_TICKS = 12000;
     
-    private static final TicketType<Integer> FPV_TICKET = TicketType.create("fullfud_fpv", Integer::compareTo, 4);
+    private static final TicketType<Integer> FPV_TICKET = TicketType.create("fullfud_fpv", Integer::compareTo, 0);
+    private static final TicketType<Integer> FPV_PLAYER_TICKET = TicketType.create("fullfud_fpv_player", Integer::compareTo, 0);
     
     private static final String TAG_ARMED = "Armed";
     private static final String TAG_THRUST = "Thrust";
@@ -137,6 +144,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_SESSION_PITCH = "SessPitch";
     private static final String TAG_SESSION_GAMEMODE = "SessGM";
     private static final String TAG_KEEP_CHUNKS = "KeepChunks";
+    private static final String TAG_SIGNAL_RANGE_SCALE = "SignalRangeScale";
+    private static final String TAG_SIGNAL_PENETRATION_SCALE = "SignalPenetrationScale";
 
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
     private final Quaternionf qRotation = new Quaternionf();
@@ -164,11 +173,30 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private UUID owner;
     private ControlSession session;
 
+    private FpvControlPacket queuedControl;
+    private UUID queuedControllerId;
+    private long lastControlReceiveTick;
+    private long lastControlApplyTick;
+    private int controlOverwritesSinceLog;
+
     // Optional mode: keep drone chunks loaded even without a controlling player.
     private boolean keepChunksLoadedWithoutPlayer;
+
+    private double signalRangeScale = 1.0D;
+    private double signalPenetrationScale = 1.0D;
+
+    private double lastSignalDistance;
+    private float lastSignalQuality;
+    private double lastSignalOcclusion;
+    private int lastSignalSteps;
+    private int lastSignalLoadedSteps;
+    private int lastSignalSolidSteps;
+    private long lastSignalCalcNanos;
     
     private ChunkPos lastTicketPos;
     private int lastTicketRadius;
+    private ChunkPos lastPlayerTicketPos;
+    private int lastPlayerTicketRadius;
     private ChunkPos lastSentViewCenter;
     private int viewPointResyncCooldown;
     
@@ -208,6 +236,37 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.entityData.define(DATA_CONTROLLER, Optional.empty());
         this.entityData.define(DATA_BATTERY, MAX_BATTERY_TICKS);
         this.entityData.define(DATA_SIGNAL_QUALITY, 1.0F);
+        this.entityData.define(DATA_SIGNAL_RANGE_SCALE, 1.0F);
+        this.entityData.define(DATA_SIGNAL_PENETRATION_SCALE, 1.0F);
+    }
+
+    public void setSignalScales(final double rangeScale, final double penetrationScale) {
+        this.signalRangeScale = sanitizeScale(rangeScale);
+        this.signalPenetrationScale = sanitizeScale(penetrationScale);
+        this.entityData.set(DATA_SIGNAL_RANGE_SCALE, (float) this.signalRangeScale);
+        this.entityData.set(DATA_SIGNAL_PENETRATION_SCALE, (float) this.signalPenetrationScale);
+    }
+
+    public double getSignalRangeScale() {
+        return this.entityData.get(DATA_SIGNAL_RANGE_SCALE);
+    }
+
+    public double getSignalPenetrationScale() {
+        return this.entityData.get(DATA_SIGNAL_PENETRATION_SCALE);
+    }
+
+    public int getDistance() {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return 0;
+        }
+        return Math.max(2, serverLevel.getServer().getPlayerList().getViewDistance());
+    }
+
+    private static double sanitizeScale(final double scale) {
+        if (!Double.isFinite(scale)) {
+            return 1.0D;
+        }
+        return Math.max(0.1D, scale);
     }
 
     @Override
@@ -239,6 +298,15 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             entityData.set(DATA_CONTROLLER, Optional.of(tag.getUUID(TAG_CONTROLLER)));
         }
         keepChunksLoadedWithoutPlayer = tag.getBoolean(TAG_KEEP_CHUNKS);
+        if (tag.contains(TAG_SIGNAL_RANGE_SCALE, Tag.TAG_DOUBLE) || tag.contains(TAG_SIGNAL_PENETRATION_SCALE, Tag.TAG_DOUBLE)) {
+            final double rangeScale = tag.contains(TAG_SIGNAL_RANGE_SCALE, Tag.TAG_DOUBLE)
+                ? tag.getDouble(TAG_SIGNAL_RANGE_SCALE)
+                : signalRangeScale;
+            final double penetrationScale = tag.contains(TAG_SIGNAL_PENETRATION_SCALE, Tag.TAG_DOUBLE)
+                ? tag.getDouble(TAG_SIGNAL_PENETRATION_SCALE)
+                : signalPenetrationScale;
+            setSignalScales(rangeScale, penetrationScale);
+        }
         
         if (tag.contains(TAG_SESSION_DIM)) {
             final var dimId = net.minecraft.resources.ResourceLocation.tryParse(tag.getString(TAG_SESSION_DIM));
@@ -283,6 +351,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             tag.putInt(TAG_SESSION_GAMEMODE, session.gameType.getId());
         }
         tag.putBoolean(TAG_KEEP_CHUNKS, keepChunksLoadedWithoutPlayer);
+        tag.putDouble(TAG_SIGNAL_RANGE_SCALE, getSignalRangeScale());
+        tag.putDouble(TAG_SIGNAL_PENETRATION_SCALE, getSignalPenetrationScale());
     }
 
     @Override
@@ -325,6 +395,12 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 setArmed(false);
                 removeAvatar();
             } else {
+                if (queuedControl != null && controller.getUUID().equals(queuedControllerId)) {
+                    applyControl(queuedControl, controller);
+                    queuedControl = null;
+                    queuedControllerId = null;
+                    lastControlApplyTick = tickCount;
+                }
                 if (tickCount % 5 == 0) {
                     calculateSignal(controller);
                 }
@@ -335,7 +411,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             }
         }
         
-        final boolean shouldForceChunks = keepChunksLoadedWithoutPlayer && entityData.get(DATA_CONTROLLER).isEmpty();
+        final boolean shouldForceChunks = keepChunksLoadedWithoutPlayer || entityData.get(DATA_CONTROLLER).isPresent();
         if (shouldForceChunks) {
             ensureChunkTicket();
         } else if (lastTicketPos != null) {
@@ -345,6 +421,40 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         updateControllerBinding();
         final ServerPlayer controller = getController();
         if (controller != null && entityData.get(DATA_CONTROLLER).isPresent()) {
+            if (tickCount % 60 == 0) {
+                final ChunkPos playerChunk = controller.chunkPosition();
+                final ChunkPos droneChunk = this.chunkPosition();
+                final boolean playerChunkLoaded = ((ServerLevel) level()).hasChunkAt(controller.blockPosition());
+                final boolean droneChunkLoaded = ((ServerLevel) level()).hasChunkAt(this.blockPosition());
+                final double dist = Math.sqrt(this.distanceToSqr(controller));
+                final int serverViewDistance = ((ServerLevel) level()).getServer().getPlayerList().getViewDistance();
+                final int viewDistance = getDistance();
+                final long receiveGap = lastControlReceiveTick == 0 ? -1L : (tickCount - lastControlReceiveTick);
+                final long applyGap = lastControlApplyTick == 0 ? -1L : (tickCount - lastControlApplyTick);
+                LOGGER.info(
+                    "FPV controller {} pos=({}, {}, {}) chunk=({}, {}) loaded={} | drone pos=({}, {}, {}) chunk=({}, {}) loaded={} | dist={} viewDist={} serverViewDist={} viewCenter={} playerTicket={} | signalQ={} signalDist={} occ={} occSteps={}/{} solid={} calcMs={} | ctrlGapRecv={} ctrlGapApply={} ctrlOverwrites={}",
+                    controller.getGameProfile().getName(),
+                    controller.getX(), controller.getY(), controller.getZ(),
+                    playerChunk.x, playerChunk.z, playerChunkLoaded,
+                    this.getX(), this.getY(), this.getZ(),
+                    droneChunk.x, droneChunk.z, droneChunkLoaded,
+                    dist, viewDistance, serverViewDistance,
+                    lastSentViewCenter,
+                    lastPlayerTicketPos,
+                    lastSignalQuality,
+                    lastSignalDistance,
+                    lastSignalOcclusion,
+                    lastSignalLoadedSteps,
+                    lastSignalSteps,
+                    lastSignalSolidSteps,
+                    lastSignalCalcNanos / 1_000_000.0D,
+                    receiveGap,
+                    applyGap,
+                    controlOverwritesSinceLog
+                );
+                controlOverwritesSinceLog = 0;
+            }
+            ensurePlayerChunkTicket(controller);
             // Ensure the player is still bound to this drone as the active view point.
             if (controller instanceof LatticeServerPlayer lattice) {
                 if (viewPointResyncCooldown > 0) {
@@ -359,6 +469,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 }
             }
             syncViewCenter(controller);
+        } else {
+            releasePlayerChunkTicket();
         }
         broadcastEngineAudio();
         
@@ -483,24 +595,29 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         Vec3 start = (session != null) ? session.origin.add(0, controller.getEyeHeight(), 0) : controller.getEyePosition();
         Vec3 end = this.position().add(0, 0.25D, 0);
         
+        final long calcStart = System.nanoTime();
         double dist = Math.sqrt(this.position().distanceToSqr(start));
         float currentSignal = 1.0F;
+
+        final double rangeScale = sanitizeScale(getSignalRangeScale());
+        final double penetrationScale = sanitizeScale(getSignalPenetrationScale());
+        final double maxRange = 600.0D * rangeScale;
+        final double fadeStart = 500.0D * rangeScale;
         
-        if (dist > 600.0D) {
+        if (dist > maxRange) {
             currentSignal = 0.0F;
-        } else if (dist > 500.0D) {
-            currentSignal = 0.5F * (1.0F - (float)((dist - 500.0D) / 100.0D));
+        } else if (dist > fadeStart) {
+            currentSignal = 0.5F * (1.0F - (float)((dist - fadeStart) / (maxRange - fadeStart)));
         } else {
-            currentSignal = 1.0F - ((float)dist / 500.0F) * 0.5F;
+            currentSignal = 1.0F - ((float)dist / (float)fadeStart) * 0.5F;
         }
         
         if (currentSignal > 0.0F) {
-            int obstacles = countObstacles(start, end);
-            
-            if (obstacles >= 15) {
-                currentSignal = 0.0F;
-            } else if (obstacles > 0) {
-                currentSignal *= (1.0F - (obstacles / 15.0F));
+            final double occlusion = getOcclusionRatio(start, end);
+            if (occlusion > 0.0D) {
+                final double penalty = occlusion / Math.max(0.1D, penetrationScale);
+                final double clamped = Mth.clamp(penalty, 0.0D, 1.0D);
+                currentSignal *= (1.0F - (float) clamped);
             }
         }
         
@@ -523,29 +640,49 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             currentSignal *= (1.0F - maxJamming);
         }
         
-        entityData.set(DATA_SIGNAL_QUALITY, Math.max(0.0F, currentSignal));
+        lastSignalCalcNanos = System.nanoTime() - calcStart;
+        lastSignalDistance = dist;
+        lastSignalQuality = Math.max(0.0F, currentSignal);
+        entityData.set(DATA_SIGNAL_QUALITY, lastSignalQuality);
     }
     
-    private int countObstacles(Vec3 start, Vec3 end) {
-        Vec3 vector = end.subtract(start);
-        double length = vector.length();
-        Vec3 dir = vector.normalize();
-        
-        double stepSize = 0.5D;
-        int steps = (int) (length / stepSize);
-        
+    private double getOcclusionRatio(final Vec3 start, final Vec3 end) {
+        final Vec3 vector = end.subtract(start);
+        final double length = vector.length();
+        if (length <= 1.0E-6D) {
+            return 0.0D;
+        }
+        final Vec3 dir = vector.normalize();
+
+        double stepSize = 1.0D;
+        if (length > 1200.0D) {
+            stepSize = 2.0D;
+        } else if (length > 600.0D) {
+            stepSize = 1.5D;
+        }
+
+        final int steps = (int) Math.max(1.0D, length / stepSize);
+        lastSignalSteps = steps;
+        lastSignalLoadedSteps = 0;
+        lastSignalSolidSteps = 0;
         int solidCount = 0;
-        BlockPos.MutableBlockPos mPos = new BlockPos.MutableBlockPos();
-        
+        final BlockPos.MutableBlockPos mPos = new BlockPos.MutableBlockPos();
+
         for (int i = 0; i < steps; i++) {
-            Vec3 point = start.add(dir.scale(i * stepSize));
+            final Vec3 point = start.add(dir.scale(i * stepSize));
             mPos.set(point.x, point.y, point.z);
-            
+            if (!level().hasChunkAt(mPos)) {
+                continue;
+            }
+            lastSignalLoadedSteps++;
             if (level().getBlockState(mPos).canOcclude()) {
                 solidCount++;
             }
         }
-        return solidCount / 2;
+
+        lastSignalSolidSteps = solidCount;
+        lastSignalOcclusion = solidCount / (double) steps;
+        return lastSignalOcclusion;
     }
     
     @Override
@@ -678,7 +815,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return;
         }
         final ChunkPos currentPos = new ChunkPos(BlockPos.containing(position()));
-        final int radius = Mth.clamp(serverLevel.getServer().getPlayerList().getViewDistance(), 2, 10);
+        final int radius = Mth.clamp(getDistance(), 2, 10);
         if (lastTicketPos == null || !lastTicketPos.equals(currentPos) || lastTicketRadius != radius) {
             if (lastTicketPos != null) {
                 serverLevel.getChunkSource().removeRegionTicket(FPV_TICKET, lastTicketPos, lastTicketRadius, getId());
@@ -698,6 +835,33 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         serverLevel.getChunkSource().removeRegionTicket(FPV_TICKET, lastTicketPos, lastTicketRadius, getId());
         lastTicketPos = null;
         lastTicketRadius = 0;
+    }
+
+    private void ensurePlayerChunkTicket(final ServerPlayer player) {
+        if (player == null || !(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        final ChunkPos currentPos = player.chunkPosition();
+        final int radius = 2;
+        if (lastPlayerTicketPos == null || !lastPlayerTicketPos.equals(currentPos) || lastPlayerTicketRadius != radius) {
+            if (lastPlayerTicketPos != null) {
+                serverLevel.getChunkSource().removeRegionTicket(FPV_PLAYER_TICKET, lastPlayerTicketPos, lastPlayerTicketRadius, getId());
+            }
+            serverLevel.getChunkSource().addRegionTicket(FPV_PLAYER_TICKET, currentPos, radius, getId());
+            lastPlayerTicketPos = currentPos;
+            lastPlayerTicketRadius = radius;
+        }
+    }
+
+    private void releasePlayerChunkTicket() {
+        if (!(level() instanceof ServerLevel serverLevel) || lastPlayerTicketPos == null) {
+            lastPlayerTicketPos = null;
+            lastPlayerTicketRadius = 0;
+            return;
+        }
+        serverLevel.getChunkSource().removeRegionTicket(FPV_PLAYER_TICKET, lastPlayerTicketPos, lastPlayerTicketRadius, getId());
+        lastPlayerTicketPos = null;
+        lastPlayerTicketRadius = 0;
     }
 
     private void updateControllerBinding() {
@@ -778,6 +942,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 endRemoteControl(controller);
             }
             releaseChunkTicket();
+            releasePlayerChunkTicket();
         }
         super.remove(reason);
     }
@@ -809,7 +974,18 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private void dropAsItem() {
-        spawnAtLocation(new ItemStack(FullfudRegistries.FPV_DRONE_ITEM.get()));
+        spawnAtLocation(new ItemStack(resolveDropItem()));
+    }
+
+    private Item resolveDropItem() {
+        final double scale = Math.max(getSignalRangeScale(), getSignalPenetrationScale());
+        if (scale >= 3.5D) {
+            return FullfudRegistries.FPV_DRONE_ITEM_X4.get();
+        }
+        if (scale >= 1.5D) {
+            return FullfudRegistries.FPV_DRONE_ITEM_X2.get();
+        }
+        return FullfudRegistries.FPV_DRONE_ITEM.get();
     }
 
     public void applyControl(final FpvControlPacket packet, final ServerPlayer sender) {
@@ -849,6 +1025,21 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             setArmed(false);
             targetThrottle = 0.0F;
         }
+    }
+
+    public void queueControl(final FpvControlPacket packet, final ServerPlayer sender) {
+        if (packet == null || sender == null) {
+            return;
+        }
+        if (!isController(sender)) {
+            return;
+        }
+        if (queuedControl != null && sender.getUUID().equals(queuedControllerId)) {
+            controlOverwritesSinceLog++;
+        }
+        queuedControl = packet;
+        queuedControllerId = sender.getUUID();
+        lastControlReceiveTick = tickCount;
     }
 
     private boolean isRemoteStateValidFor(final ServerPlayer sender) {
@@ -954,6 +1145,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         session = null;
         removeAvatar();
         releaseChunkTicket();
+        releasePlayerChunkTicket();
     }
 
     private ServerPlayer resolvePlayer(final UUID playerId) {
@@ -1004,7 +1196,15 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             lastSentViewCenter = chunkPos;
         }
         if (centerChanged || (tickCount % 20 == 0)) {
+            if (player instanceof dev.lazurite.lattice.impl.api.player.InternalLatticeServerPlayer lattice) {
+                final var viewWrapper = lattice.getViewpointChunkPosSupplierWrapper();
+                if (viewWrapper != null) {
+                    viewWrapper.setLastChunkPos(chunkPos);
+                    viewWrapper.setLastLastChunkPos(chunkPos);
+                }
+            }
             com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkTracking(player);
+            com.fullfud.fullfud.core.RemoteControlFailsafe.forceChunkRefresh(player);
         }
     }
 

@@ -62,6 +62,14 @@ public final class FullfudRegistries {
         new FpvDroneItem(new Item.Properties().stacksTo(1))
     );
 
+    public static final RegistryObject<Item> FPV_DRONE_ITEM_X2 = ITEMS.register("fpv_drone_x2", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), 2.0D, 2.0D)
+    );
+
+    public static final RegistryObject<Item> FPV_DRONE_ITEM_X4 = ITEMS.register("fpv_drone_x4", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), 4.0D, 4.0D)
+    );
+
     public static final RegistryObject<Item> FPV_CONTROLLER_ITEM = ITEMS.register("fpv_controller", () ->
         new FpvControllerItem(new Item.Properties().stacksTo(1))
     );
@@ -94,7 +102,7 @@ public final class FullfudRegistries {
     public static final RegistryObject<EntityType<FpvDroneEntity>> FPV_DRONE_ENTITY = ENTITY_TYPES.register("fpv_drone", () ->
         EntityType.Builder.<FpvDroneEntity>of(FpvDroneEntity::new, MobCategory.MISC)
             .sized(0.9F, 0.35F)
-            .clientTrackingRange(1024)
+            .clientTrackingRange(4096)
             .updateInterval(1)
             .setShouldReceiveVelocityUpdates(true)
             .build(resource("fpv_drone").toString())

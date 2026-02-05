@@ -10,6 +10,8 @@
   "item.fullfud.shahed_launcher": "Пусковая Shahed",
   "item.fullfud.reb_battery": "Аккумулятор РЭБ",
   "item.fullfud.fpv_drone": "Ударный FPV-дрон",
+  "item.fullfud.fpv_drone_x2": "Ударный FPV-дрон (2x сигнал)",
+  "item.fullfud.fpv_drone_x4": "Ударный FPV-дрон (4x сигнал)",
   "item.fullfud.fpv_controller": "Пульт FPV",
   "item.fullfud.fpv_goggles": "FPV-очки",
   "entity.fullfud.shahed_136": "Шахед-136",

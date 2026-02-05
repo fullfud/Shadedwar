@@ -163,7 +163,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final double DAMAGE_SMOKE_PARTICLES_PER_TICK = 7.0D / 20.0D;
     private static final double DAMAGE_SMOKE_SPREAD = 0.7D;
     private static final double SLOW_SPEED_SCALE = 0.5D;
-    private static final TicketType<Integer> SHAHED_TICKET = TicketType.create("fullfud_shahed", Integer::compareTo, 4);
+    private static final TicketType<Integer> SHAHED_TICKET = TicketType.create("fullfud_shahed", Integer::compareTo, 0);
     private static final EntityDimensions SHAHEED_DIMENSIONS = EntityDimensions.scalable(3.0F, 1.0F);
     private final Map<UUID, Integer> viewerDistances = new HashMap<>();
     private float controlForward;

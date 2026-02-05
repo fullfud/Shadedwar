@@ -15,16 +15,13 @@ public final class FpvNetworkHandlers {
         if (sender == null) {
             return;
         }
-        if (!PacketRateLimiter.allow(sender, "fpv_control", 4, 80)) {
-            return;
-        }
         final ServerLevel level = sender.serverLevel();
         if (level == null) {
             return;
         }
         final var entity = level.getEntity(packet.droneId());
         if (entity instanceof FpvDroneEntity drone) {
-            drone.applyControl(packet, sender);
+            drone.queueControl(packet, sender);
         }
     }
 

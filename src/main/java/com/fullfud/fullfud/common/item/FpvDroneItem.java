@@ -12,8 +12,17 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.UseOnContext;
 
 public class FpvDroneItem extends Item {
+    private final double signalRangeScale;
+    private final double signalPenetrationScale;
+
     public FpvDroneItem(final Properties properties) {
+        this(properties, 1.0D, 1.0D);
+    }
+
+    public FpvDroneItem(final Properties properties, final double signalRangeScale, final double signalPenetrationScale) {
         super(properties);
+        this.signalRangeScale = signalRangeScale;
+        this.signalPenetrationScale = signalPenetrationScale;
     }
 
     @Override
@@ -28,6 +37,7 @@ public class FpvDroneItem extends Item {
         }
         final Direction facing = context.getHorizontalDirection();
         drone.moveTo(spawnPos.getX() + 0.5D, spawnPos.getY() + 0.05D, spawnPos.getZ() + 0.5D, facing.toYRot(), 0.0F);
+        drone.setSignalScales(signalRangeScale, signalPenetrationScale);
         serverLevel.addFreshEntity(drone);
         if (context.getPlayer() instanceof ServerPlayer serverPlayer) {
             drone.setOwner(serverPlayer);

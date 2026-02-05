@@ -9,6 +9,8 @@
   "item.fullfud.reb_emitter": "Випромінювач РЕБ",
   "item.fullfud.shahed_launcher": "Пускова установка Shahed",
   "item.fullfud.reb_battery": "Акумулятор РЕБ",
+  "item.fullfud.fpv_drone_x2": "FPV-дрон (2x сигнал)",
+  "item.fullfud.fpv_drone_x4": "FPV-дрон (4x сигнал)",
   "entity.fullfud.shahed_136": "Shahed-136",
   "entity.fullfud.shahed_launcher": "Пускова установка Shahed",
   "menu.fullfud.shahed_monitor": "Монітор Shahed",

@@ -534,11 +534,11 @@ public final class FpvClientHandler {
                 g.fill(cx - tw / 2 - 2, cy - 40 - 2, cx + tw / 2 + 2, cy - 40 + 10, 0xAA000000);
                 g.drawString(font, text, cx - tw / 2, cy - 40, 0xFFFF0000, true);
             }
-        } else if (distanceToPilot > 500) {
+        } else if (distanceToPilot > 500 * drone.getSignalRangeScale()) {
             MutableComponent text = Component.literal("MAX RANGE").withStyle(DIGITAL_STYLE);
             int tw = font.width(text);
             g.drawString(font, text, cx - tw / 2, cy - 40, 0xFFFF0000, true);
-        } else if (distanceToPilot > 450) {
+        } else if (distanceToPilot > 450 * drone.getSignalRangeScale()) {
             if (System.currentTimeMillis() % 1000 < 500) {
                 MutableComponent text = Component.literal("TURN AROUND").withStyle(DIGITAL_STYLE);
                 int tw = font.width(text);

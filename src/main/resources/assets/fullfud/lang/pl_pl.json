@@ -9,6 +9,8 @@
   "item.fullfud.reb_emitter": "Emiter REB",
   "item.fullfud.shahed_launcher": "Wyrzutnia Shahed",
   "item.fullfud.reb_battery": "Bateria REB",
+  "item.fullfud.fpv_drone_x2": "Dron FPV (2x sygnał)",
+  "item.fullfud.fpv_drone_x4": "Dron FPV (4x sygnał)",
   "entity.fullfud.shahed_136": "Shahed-136",
   "entity.fullfud.shahed_launcher": "Wyrzutnia Shahed",
   "menu.fullfud.shahed_monitor": "Monitor Shahed",

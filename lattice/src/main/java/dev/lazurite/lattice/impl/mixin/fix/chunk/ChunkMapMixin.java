@@ -48,6 +48,18 @@ public abstract class ChunkMapMixin {
     @Unique private final List<ChunkPos> removedChunks = new ArrayList<>();
     @Unique private final List<ChunkPos> inRangeChunks = new ArrayList<>();
     @Unique private ServerPlayer serverPlayer;
+    @Unique private int lattice$getViewDistance(final ServerPlayer serverPlayer) {
+        if (serverPlayer instanceof InternalLatticeServerPlayer lattice) {
+            final var wrapper = lattice.getViewpointChunkPosSupplierWrapper();
+            if (wrapper != null) {
+                final int distance = wrapper.getDistance();
+                if (distance > 0) {
+                    return distance;
+                }
+            }
+        }
+        return this.viewDistance;
+    }
 
     // region euclideanDistanceSquared
     /*
@@ -97,7 +109,8 @@ public abstract class ChunkMapMixin {
     )
     protected boolean method_17219_STORE1(boolean bl, ChunkPos chunkPos, int k, MutableObject<ClientboundLevelChunkWithLightPacket> mutableObject, ServerPlayer serverPlayer) {
         final var lastViewPointChunkPos = ((InternalLatticeServerPlayer) serverPlayer).getViewpointChunkPosSupplierWrapper().getLastChunkPos();
-        return bl || ChunkMap.isChunkInRange(chunkPos.x, chunkPos.z, lastViewPointChunkPos.x, lastViewPointChunkPos.z, this.viewDistance);
+        final int viewDistance = lattice$getViewDistance(serverPlayer);
+        return bl || ChunkMap.isChunkInRange(chunkPos.x, chunkPos.z, lastViewPointChunkPos.x, lastViewPointChunkPos.z, viewDistance);
     }
 
     // endregion setViewDistance
@@ -193,11 +206,12 @@ public abstract class ChunkMapMixin {
     void updatePlayerStatus_TAIL(ServerPlayer serverPlayer, boolean bl, CallbackInfo ci) {
         final var chunkPosSupplierWrapper = ((InternalLatticeServerPlayer) serverPlayer).getViewpointChunkPosSupplierWrapper();
         final var chunkPos = chunkPosSupplierWrapper.getChunkPos();
+        final int viewDistance = lattice$getViewDistance(serverPlayer);
 
         if (!chunkPosSupplierWrapper.isInSameChunk(serverPlayer)) {
-            for (var x = chunkPos.x - this.viewDistance - 1; x <= chunkPos.x + this.viewDistance + 1; ++x) {
-                for (var z = chunkPos.z - this.viewDistance - 1; z <= chunkPos.z + this.viewDistance + 1; ++z) {
-                    if (ChunkMap.isChunkInRange(x, z, chunkPos.x, chunkPos.z, this.viewDistance)) { // && !this.queuedChunks.contains(chunkPos)) {
+            for (var x = chunkPos.x - viewDistance - 1; x <= chunkPos.x + viewDistance + 1; ++x) {
+                for (var z = chunkPos.z - viewDistance - 1; z <= chunkPos.z + viewDistance + 1; ++z) {
+                    if (ChunkMap.isChunkInRange(x, z, chunkPos.x, chunkPos.z, viewDistance)) { // && !this.queuedChunks.contains(chunkPos)) {
                         this.queuedChunks.add(new ChunkPos(x, z));
                     }
                 }
@@ -434,15 +448,16 @@ public abstract class ChunkMapMixin {
 
         final var viewPointChunkPos = viewPoint.getChunkPos();
         final var lastViewPointChunkPos = chunkPosSupplierWrapper.getLastChunkPos();
+        final int viewDistance = lattice$getViewDistance(serverPlayer);
 
         // if check not necessary but more efficient
         if (!chunkPosSupplierWrapper.isInSameChunk(serverPlayer) || !chunkPosSupplierWrapper.wasInSameChunk(serverPlayer, true)) {
 
-            if (Math.abs(lastViewPointChunkPos.x - viewPointChunkPos.x) <= this.viewDistance * 2 && Math.abs(lastViewPointChunkPos.z - viewPointChunkPos.z) <= this.viewDistance * 2) {
-                for (var x = Math.min(viewPointChunkPos.x, lastViewPointChunkPos.x) - this.viewDistance - 1; x <= Math.max(viewPointChunkPos.x, lastViewPointChunkPos.x) + this.viewDistance + 1; ++x) {
-                    for (var z = Math.min(viewPointChunkPos.z, lastViewPointChunkPos.z) - this.viewDistance - 1; z <= Math.max(viewPointChunkPos.z, lastViewPointChunkPos.z) + this.viewDistance + 1; ++z) {
-                        boolean bl = isChunkInRange(x, z, lastViewPointChunkPos.x, lastViewPointChunkPos.z, this.viewDistance);
-                        boolean bl2 = isChunkInRange(x, z, viewPointChunkPos.x, viewPointChunkPos.z, this.viewDistance);
+            if (Math.abs(lastViewPointChunkPos.x - viewPointChunkPos.x) <= viewDistance * 2 && Math.abs(lastViewPointChunkPos.z - viewPointChunkPos.z) <= viewDistance * 2) {
+                for (var x = Math.min(viewPointChunkPos.x, lastViewPointChunkPos.x) - viewDistance - 1; x <= Math.max(viewPointChunkPos.x, lastViewPointChunkPos.x) + viewDistance + 1; ++x) {
+                    for (var z = Math.min(viewPointChunkPos.z, lastViewPointChunkPos.z) - viewDistance - 1; z <= Math.max(viewPointChunkPos.z, lastViewPointChunkPos.z) + viewDistance + 1; ++z) {
+                        boolean bl = isChunkInRange(x, z, lastViewPointChunkPos.x, lastViewPointChunkPos.z, viewDistance);
+                        boolean bl2 = isChunkInRange(x, z, viewPointChunkPos.x, viewPointChunkPos.z, viewDistance);
 
                         ChunkPos chunkPos = new ChunkPos(x, z);
 
@@ -456,21 +471,21 @@ public abstract class ChunkMapMixin {
                     }
                 }
             } else {
-                for (var x = lastViewPointChunkPos.x - this.viewDistance - 1; x <= lastViewPointChunkPos.x + this.viewDistance + 1; ++x) {
-                    for (var z = lastViewPointChunkPos.z - this.viewDistance - 1; z <= lastViewPointChunkPos.z + this.viewDistance + 1; ++z) {
+                for (var x = lastViewPointChunkPos.x - viewDistance - 1; x <= lastViewPointChunkPos.x + viewDistance + 1; ++x) {
+                    for (var z = lastViewPointChunkPos.z - viewDistance - 1; z <= lastViewPointChunkPos.z + viewDistance + 1; ++z) {
                         final var chunkPos = new ChunkPos(x, z);
 
-                        if (isChunkInRange(x, z, lastViewPointChunkPos.x, lastViewPointChunkPos.z, this.viewDistance)) { // && !this.removedChunks.contains(chunkPos)) {
+                        if (isChunkInRange(x, z, lastViewPointChunkPos.x, lastViewPointChunkPos.z, viewDistance)) { // && !this.removedChunks.contains(chunkPos)) {
                             this.removedChunks.add(chunkPos);
                         }
                     }
                 }
 
-                for (var x = viewPointChunkPos.x - this.viewDistance - 1; x <= viewPointChunkPos.x + this.viewDistance + 1; ++x) {
-                    for (var z = viewPointChunkPos.z - this.viewDistance - 1; z <= viewPointChunkPos.z + this.viewDistance + 1; ++z) {
+                for (var x = viewPointChunkPos.x - viewDistance - 1; x <= viewPointChunkPos.x + viewDistance + 1; ++x) {
+                    for (var z = viewPointChunkPos.z - viewDistance - 1; z <= viewPointChunkPos.z + viewDistance + 1; ++z) {
                         final var chunkPos = new ChunkPos(x, z);
 
-                        if (isChunkInRange(x, z, viewPointChunkPos.x, viewPointChunkPos.z, this.viewDistance)) { // && !this.addedChunks.contains(chunkPos)) {
+                        if (isChunkInRange(x, z, viewPointChunkPos.x, viewPointChunkPos.z, viewDistance)) { // && !this.addedChunks.contains(chunkPos)) {
                             this.addedChunks.add(chunkPos);
                         }
                     }
@@ -518,7 +533,8 @@ public abstract class ChunkMapMixin {
     )
     public boolean getPlayers_isChunkOnRangeBorder(int i, int j, int k, int l, int m) {
         final var lastViewPointChunkPos = ((InternalLatticeServerPlayer) serverPlayer).getViewpointChunkPosSupplierWrapper().getLastChunkPos();
-        return isChunkOnRangeBorder(i, j, k, l, m) || isChunkOnRangeBorder(i, j, lastViewPointChunkPos.x, lastViewPointChunkPos.z, m);
+        final int viewDistance = lattice$getViewDistance(serverPlayer);
+        return isChunkOnRangeBorder(i, j, k, l, m) || isChunkOnRangeBorder(i, j, lastViewPointChunkPos.x, lastViewPointChunkPos.z, viewDistance);
     }
 
     @Redirect(
@@ -530,7 +546,8 @@ public abstract class ChunkMapMixin {
     )
     public boolean getPlayers_isChunkInRange(int i, int j, int k, int l, int m) {
         final var lastViewPointChunkPos = ((InternalLatticeServerPlayer) serverPlayer).getViewpointChunkPosSupplierWrapper().getLastChunkPos();
-        return isChunkInRange(i, j, k, l, m) || isChunkInRange(i, j, lastViewPointChunkPos.x, lastViewPointChunkPos.z, m);
+        final int viewDistance = lattice$getViewDistance(serverPlayer);
+        return isChunkInRange(i, j, k, l, m) || isChunkInRange(i, j, lastViewPointChunkPos.x, lastViewPointChunkPos.z, viewDistance);
     }
 
     // endregion getPlayers
