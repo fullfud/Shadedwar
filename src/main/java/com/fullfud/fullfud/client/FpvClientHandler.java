@@ -410,6 +410,8 @@ public final class FpvClientHandler {
             inFpvMode = false;
             destroyFpvChain();
         }
+        stopActiveDroneAudio();
+        forceCameraToPlayer();
         activeDrone = null;
         throttleDemand = 0.0F;
         escRequested = false;
@@ -418,6 +420,56 @@ public final class FpvClientHandler {
         mouseAccumX = 0;
         mouseAccumY = 0;
         mouseInitialized = false;
+    }
+
+    private static void stopActiveDroneAudio() {
+        if (activeDrone == null) {
+            return;
+        }
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.level == null) {
+            return;
+        }
+        for (final var entity : minecraft.level.entitiesForRendering()) {
+            if (!(entity instanceof FpvDroneEntity drone)) {
+                continue;
+            }
+            if (!activeDrone.equals(drone.getUUID())) {
+                continue;
+            }
+            drone.stopClientSound();
+            break;
+        }
+    }
+
+    private static void forceCameraToPlayer() {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null) {
+            return;
+        }
+        if (minecraft.getCameraEntity() != minecraft.player) {
+            minecraft.setCameraEntity(minecraft.player);
+        }
+        tryUpdateSoundListener(minecraft);
+    }
+
+    private static void tryUpdateSoundListener(final Minecraft minecraft) {
+        if (minecraft == null) {
+            return;
+        }
+        try {
+            final var soundManager = minecraft.getSoundManager();
+            final var camera = minecraft.gameRenderer.getMainCamera();
+            final java.lang.reflect.Method method = soundManager.getClass().getMethod("updateSource", camera.getClass());
+            method.invoke(soundManager, camera);
+        } catch (Throwable ignored) {
+        }
+        try {
+            final var soundManager = minecraft.getSoundManager();
+            final java.lang.reflect.Method method = soundManager.getClass().getMethod("resume");
+            method.invoke(soundManager);
+        } catch (Throwable ignored) {
+        }
     }
 
     @SuppressWarnings("unchecked")

@@ -55,4 +55,8 @@ public class FpvEngineSoundInstance extends AbstractTickableSoundInstance {
             this.stop();
         }
     }
+
+    public void stopSound() {
+        this.stop();
+    }
 }

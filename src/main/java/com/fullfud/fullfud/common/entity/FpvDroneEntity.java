@@ -1608,6 +1608,16 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private record ControlSession(ResourceKey<Level> dimension, Vec3 origin, float yaw, float pitch, GameType gameType) { }
 
+    public void stopClientSound() {
+        if (!level().isClientSide) {
+            return;
+        }
+        if (clientSoundInstance instanceof com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound) {
+            sound.stopSound();
+        }
+        clientSoundInstance = null;
+    }
+
     private static final class RemotePilotFakePlayer extends FakePlayer {
         private final UUID ownerId;
         private boolean forwardingDamage;
