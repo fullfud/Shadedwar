@@ -1,0 +1,18 @@
+{
+  "minVersion": "0.8",
+  "compatibilityLevel": "JAVA_17",
+  "required": true,
+  "refmap": "lattice.refmap.json",
+  "plugin": "dev.lazurite.lattice.impl.mixin.LatticeMixinPlugin",
+  "package": "dev.lazurite.lattice.impl.client.mixin",
+  "client": [
+    "core.player.LocalPlayerMixin",
+    "feature.render.LevelRendererMixin",
+    "fix.chunk.StorageMixin",
+    "fix.render.LevelRendererMixin",
+    "fix.render.MinecraftMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
