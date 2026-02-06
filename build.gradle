@@ -153,10 +153,11 @@ jar.finalizedBy("reobfJar")
 
 def cleanResourcesDir = file("src/clean/resources")
 def cleanResourcesOut = layout.buildDirectory.dir("cleanResources")
+def mainResourcesOut = file("$buildDir/resources/main")
 
 tasks.register("syncCleanResources", Copy) {
     dependsOn("processResources")
-    from(tasks.named("processResources").map { it.destinationDir }) {
+    from(mainResourcesOut) {
         if (cleanResourcesDir.exists()) {
             exclude { details ->
                 file("${cleanResourcesDir}/${details.path}").exists()
@@ -172,7 +173,8 @@ tasks.register("syncCleanResources", Copy) {
 tasks.register("jarClean", Jar) {
     archiveVersion.set(providers.provider { project.version.toString() })
     archiveClassifier.set("clean")
-    dependsOn("classes", "syncCleanResources", ":lattice:reobfJar")
+    dependsOn("classes", ":lattice:reobfJar")
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
         attributes([
             "Specification-Title": "shadedwar",
@@ -183,8 +185,10 @@ tasks.register("jarClean", Jar) {
             "Implementation-Vendor": "fullfud"
         ])
     }
-    from(sourceSets.main.output.classesDirs)
-    from(cleanResourcesOut)
+    if (cleanResourcesDir.exists()) {
+        from(cleanResourcesDir)
+    }
+    from(sourceSets.main.output)
     from(latticeReobfJar) {
         into "META-INF/jarjar"
         rename { "lattice-${latticeVersion}.jar" }
