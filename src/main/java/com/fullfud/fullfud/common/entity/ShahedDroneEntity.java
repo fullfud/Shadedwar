@@ -9,6 +9,7 @@ import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
+import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import dev.lazurite.lattice.api.player.LatticeServerPlayer;
@@ -887,6 +888,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                     return InteractionResult.FAIL;
                 }
                 MonitorItem.setLinkedDrone(heldItem, this.getUUID());
+                FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> serverPlayer), new ShahedLinkPacket(this.getUUID(), true));
                 player.displayClientMessage(Component.translatable("message.fullfud.monitor.linked"), true);
             }
             return InteractionResult.sidedSuccess(level().isClientSide);

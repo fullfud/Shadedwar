@@ -4,6 +4,8 @@ import com.fullfud.fullfud.client.render.MonitorRenderer;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import com.fullfud.fullfud.core.data.ShahedLinkData;
+import com.fullfud.fullfud.core.network.FullfudNetwork;
+import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -18,6 +20,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.client.extensions.common.IClientItemExtensions;
 import net.minecraftforge.network.NetworkHooks;
+import net.minecraftforge.network.PacketDistributor;
 import software.bernie.geckolib.animatable.GeoItem;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.core.animation.AnimatableManager;
@@ -76,6 +79,7 @@ public class MonitorItem extends Item implements GeoItem {
         }, () -> {
             ShahedLinkData.get(serverLevel).unlink(droneId);
             clearLinkedDrone(stack);
+            FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> serverPlayer), new ShahedLinkPacket(droneId, false));
             player.displayClientMessage(Component.translatable("message.fullfud.monitor.drone_missing"), true);
         });
 

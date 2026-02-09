@@ -26,7 +26,7 @@ public record ShahedLinkPacket(UUID droneId, boolean linked) {
             context.setPacketHandled(true);
             return;
         }
-        context.enqueueWork(() -> ShahedNetworkHandlers.handleLinkUpdate(this, context.getSender()));
+        context.enqueueWork(() -> ShahedNetworkHandlers.handleLinkUpdate(this));
         context.setPacketHandled(true);
     }
 }

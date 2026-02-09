@@ -7,6 +7,7 @@ import com.fullfud.fullfud.client.screen.ShahedMonitorScreen;
 import com.fullfud.fullfud.client.sound.ShahedEngineLoopSound;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
+import com.fullfud.fullfud.common.item.MonitorItem;
 import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
@@ -33,6 +34,7 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
@@ -49,6 +51,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
@@ -105,7 +108,18 @@ public final class ShahedClientHandler {
     }
 
     public static void handleLinkPacket(final ShahedLinkPacket packet) {
-        
+        if (packet == null || packet.droneId() == null) {
+            return;
+        }
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null) {
+            return;
+        }
+        if (packet.linked()) {
+            linkMonitorClientSide(minecraft.player, packet.droneId());
+        } else {
+            unlinkMonitorsClientSide(minecraft.player, packet.droneId());
+        }
     }
 
     public static ShahedStatusPacket getLastStatus() {
@@ -347,5 +361,51 @@ public final class ShahedClientHandler {
         final int chargeTicks = emitter.hasBattery() ? emitter.getChargeTicks() : 0;
         final int percent = Mth.clamp(Math.round((chargeTicks / (float) RebBatteryItem.MAX_CHARGE_TICKS) * 100.0F), 0, 100);
         return Component.translatable("status.fullfud.reb.charge", percent);
+    }
+
+    private static void linkMonitorClientSide(final Player player, final UUID droneId) {
+        if (player == null || droneId == null || player.getInventory() == null) {
+            return;
+        }
+        final ItemStack main = player.getMainHandItem();
+        if (main.getItem() instanceof MonitorItem) {
+            MonitorItem.setLinkedDrone(main, droneId);
+            return;
+        }
+        final ItemStack off = player.getOffhandItem();
+        if (off.getItem() instanceof MonitorItem) {
+            MonitorItem.setLinkedDrone(off, droneId);
+            return;
+        }
+        for (final ItemStack stack : player.getInventory().items) {
+            if (!(stack.getItem() instanceof MonitorItem)) {
+                continue;
+            }
+            final Optional<UUID> linked = MonitorItem.getLinkedDrone(stack);
+            if (linked.isEmpty() || linked.get().equals(droneId)) {
+                MonitorItem.setLinkedDrone(stack, droneId);
+                return;
+            }
+        }
+    }
+
+    private static void unlinkMonitorsClientSide(final Player player, final UUID droneId) {
+        if (player == null || droneId == null || player.getInventory() == null) {
+            return;
+        }
+        clearLinkIfMatches(player.getMainHandItem(), droneId);
+        clearLinkIfMatches(player.getOffhandItem(), droneId);
+        for (final ItemStack stack : player.getInventory().items) {
+            clearLinkIfMatches(stack, droneId);
+        }
+    }
+
+    private static void clearLinkIfMatches(final ItemStack stack, final UUID droneId) {
+        if (stack == null || !(stack.getItem() instanceof MonitorItem)) {
+            return;
+        }
+        if (MonitorItem.getLinkedDrone(stack).filter(droneId::equals).isPresent()) {
+            MonitorItem.clearLinkedDrone(stack);
+        }
     }
 }

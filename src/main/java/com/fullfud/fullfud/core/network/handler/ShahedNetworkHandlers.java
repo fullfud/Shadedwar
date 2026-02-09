@@ -31,10 +31,7 @@ public final class ShahedNetworkHandlers {
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ShahedClientHandler.handleStatusPacket(packet));
     }
 
-    public static void handleLinkUpdate(final ShahedLinkPacket packet, final ServerPlayer sender) {
-        if (sender != null) {
-            
-        }
+    public static void handleLinkUpdate(final ShahedLinkPacket packet) {
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ShahedClientHandler.handleLinkPacket(packet));
     }
 }

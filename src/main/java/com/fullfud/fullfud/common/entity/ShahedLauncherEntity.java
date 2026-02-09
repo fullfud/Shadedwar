@@ -3,6 +3,8 @@ package com.fullfud.fullfud.common.entity;
 import com.fullfud.fullfud.common.item.MonitorItem;
 import com.fullfud.fullfud.common.item.ShahedDroneItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.network.FullfudNetwork;
+import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
@@ -22,6 +24,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import java.util.UUID;
 import net.minecraftforge.network.NetworkHooks;
+import net.minecraftforge.network.PacketDistributor;
 import software.bernie.geckolib.animatable.GeoEntity;
 import software.bernie.geckolib.core.animatable.instance.AnimatableInstanceCache;
 import software.bernie.geckolib.core.animation.AnimatableManager;
@@ -189,6 +192,9 @@ public class ShahedLauncherEntity extends Entity implements GeoEntity {
         }
         drone.launchFromLauncher(this);
         MonitorItem.setLinkedDrone(monitorStack, drone.getUUID());
+        if (player instanceof ServerPlayer serverPlayer) {
+            FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> serverPlayer), new ShahedLinkPacket(drone.getUUID(), true));
+        }
         player.displayClientMessage(Component.translatable("message.fullfud.monitor.linked"), true);
         clearStoredDrone();
     }
