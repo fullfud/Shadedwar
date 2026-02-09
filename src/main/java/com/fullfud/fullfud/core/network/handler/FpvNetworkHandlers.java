@@ -15,6 +15,10 @@ public final class FpvNetworkHandlers {
         if (sender == null) {
             return;
         }
+        // Soft limit: keep enough headroom for normal/bursty control while blocking packet floods.
+        if (!PacketRateLimiter.allow(sender, "fpv_control", 12, 240)) {
+            return;
+        }
         final ServerLevel level = sender.serverLevel();
         if (level == null) {
             return;

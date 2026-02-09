@@ -12,6 +12,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public class ShahedMonitorMenu extends AbstractContainerMenu {
@@ -38,7 +39,13 @@ public class ShahedMonitorMenu extends AbstractContainerMenu {
 
     @Override
     public boolean stillValid(final Player player) {
-        return true;
+        if (droneId == null || player == null || !player.isAlive()) {
+            return false;
+        }
+        if (!(player instanceof ServerPlayer serverPlayer)) {
+            return true;
+        }
+        return findDrone(serverPlayer, droneId).isPresent();
     }
 
     @Override
@@ -52,8 +59,7 @@ public class ShahedMonitorMenu extends AbstractContainerMenu {
         if (!(player instanceof ServerPlayer serverPlayer) || droneId == null) {
             return;
         }
-        final ServerLevel level = serverPlayer.serverLevel();
-        if (ShahedDroneEntity.find(level, droneId).map(drone -> {
+        if (findDrone(serverPlayer, droneId).map(drone -> {
             drone.removeViewer(serverPlayer);
             drone.endRemoteControl(serverPlayer);
             return true;
@@ -69,6 +75,27 @@ public class ShahedMonitorMenu extends AbstractContainerMenu {
             tag.putBoolean("FreezeOnly", true);
             root.put(ShahedDroneEntity.PLAYER_REMOTE_TAG, tag);
         }
+    }
+
+    private static Optional<ShahedDroneEntity> findDrone(final ServerPlayer player, final UUID droneId) {
+        final ServerLevel currentLevel = player.serverLevel();
+        final Optional<ShahedDroneEntity> local = ShahedDroneEntity.find(currentLevel, droneId);
+        if (local.isPresent()) {
+            return local;
+        }
+        if (player.getServer() == null) {
+            return Optional.empty();
+        }
+        for (final ServerLevel level : player.getServer().getAllLevels()) {
+            if (level == currentLevel) {
+                continue;
+            }
+            final Optional<ShahedDroneEntity> found = ShahedDroneEntity.find(level, droneId);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
     }
 
     private static UUID readDroneUuid(final FriendlyByteBuf buffer) {

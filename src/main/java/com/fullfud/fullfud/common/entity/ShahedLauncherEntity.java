@@ -127,7 +127,9 @@ public class ShahedLauncherEntity extends Entity implements GeoEntity {
 
     @Override
     public void remove(final RemovalReason reason) {
-        dropStoredDroneAsItem();
+        if (!level().isClientSide && reason.shouldDestroy()) {
+            dropStoredDroneAsItem();
+        }
         super.remove(reason);
     }
 

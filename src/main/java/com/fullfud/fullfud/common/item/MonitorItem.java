@@ -52,8 +52,7 @@ public class MonitorItem extends Item implements GeoItem {
         }
 
         final UUID droneId = linkedDrone.get();
-        final ServerLevel serverLevel = serverPlayer.serverLevel();
-        ShahedDroneEntity.find(serverLevel, droneId).ifPresentOrElse(drone -> {
+        findLinkedDrone(serverPlayer, droneId).ifPresentOrElse(drone -> {
             if (!drone.assignOwner(serverPlayer)) {
                 player.displayClientMessage(Component.translatable("message.fullfud.monitor.in_use"), true);
                 return;
@@ -77,7 +76,7 @@ public class MonitorItem extends Item implements GeoItem {
                 player.displayClientMessage(Component.translatable("message.fullfud.monitor.open_failed"), true);
             }
         }, () -> {
-            ShahedLinkData.get(serverLevel).unlink(droneId);
+            unlinkAcrossLevels(serverPlayer, droneId);
             clearLinkedDrone(stack);
             FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> serverPlayer), new ShahedLinkPacket(droneId, false));
             player.displayClientMessage(Component.translatable("message.fullfud.monitor.drone_missing"), true);
@@ -102,6 +101,37 @@ public class MonitorItem extends Item implements GeoItem {
         final CompoundTag tag = stack.getTag();
         if (tag != null) {
             tag.remove(DRONE_TAG);
+        }
+    }
+
+    private static Optional<ShahedDroneEntity> findLinkedDrone(final ServerPlayer player, final UUID droneId) {
+        final ServerLevel currentLevel = player.serverLevel();
+        final Optional<ShahedDroneEntity> local = ShahedDroneEntity.find(currentLevel, droneId);
+        if (local.isPresent()) {
+            return local;
+        }
+        if (player.getServer() == null) {
+            return Optional.empty();
+        }
+        for (final ServerLevel level : player.getServer().getAllLevels()) {
+            if (level == currentLevel) {
+                continue;
+            }
+            final Optional<ShahedDroneEntity> found = ShahedDroneEntity.find(level, droneId);
+            if (found.isPresent()) {
+                return found;
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static void unlinkAcrossLevels(final ServerPlayer player, final UUID droneId) {
+        if (player.getServer() == null) {
+            ShahedLinkData.get(player.serverLevel()).unlink(droneId);
+            return;
+        }
+        for (final ServerLevel level : player.getServer().getAllLevels()) {
+            ShahedLinkData.get(level).unlink(droneId);
         }
     }
 
