@@ -34,17 +34,17 @@ public final class DroneAudioClientHandler {
         }
         final Minecraft mc = Minecraft.getInstance();
         if (mc == null || mc.level == null) {
+            clearLoops();
             return;
         }
+        cleanupStoppedLoops();
         if (isDroneEntityPresent(mc, packet.droneId())) {
+            stopLoop(packet.droneId());
             return;
         }
 
         if (!packet.active()) {
-            final RemoteDroneLoopSoundInstance existing = LOOPS.remove(packet.droneId());
-            if (existing != null) {
-                existing.forceStop();
-            }
+            stopLoop(packet.droneId());
             return;
         }
 
@@ -58,13 +58,12 @@ public final class DroneAudioClientHandler {
         }
 
         final long tick = mc.level.getGameTime();
-        final RemoteDroneLoopSoundInstance instance = LOOPS.computeIfAbsent(packet.droneId(), id -> {
-            final RemoteDroneLoopSoundInstance created = new RemoteDroneLoopSoundInstance(event);
-            created.update(packet.x(), packet.y(), packet.z(), packet.volume(), packet.pitch(), tick);
-            mc.getSoundManager().play(created);
-            return created;
-        });
-
+        RemoteDroneLoopSoundInstance instance = LOOPS.get(packet.droneId());
+        if (instance == null || instance.isStopped()) {
+            instance = new RemoteDroneLoopSoundInstance(event);
+            LOOPS.put(packet.droneId(), instance);
+            mc.getSoundManager().play(instance);
+        }
         instance.update(packet.x(), packet.y(), packet.z(), packet.volume(), packet.pitch(), tick);
     }
 
@@ -74,9 +73,12 @@ public final class DroneAudioClientHandler {
         }
         final Minecraft mc = Minecraft.getInstance();
         if (mc == null || mc.level == null) {
+            clearLoops();
             return;
         }
+        cleanupStoppedLoops();
         if (packet.droneId() != null && isDroneEntityPresent(mc, packet.droneId())) {
+            stopLoop(packet.droneId());
             return;
         }
         final SoundEvent event = resolveOneShot(packet.droneType(), packet.soundKind());
@@ -118,5 +120,28 @@ public final class DroneAudioClientHandler {
             return (entity instanceof FpvDroneEntity) || (entity instanceof ShahedDroneEntity);
         }
         return false;
+    }
+
+    private static void stopLoop(final UUID droneId) {
+        if (droneId == null) {
+            return;
+        }
+        final RemoteDroneLoopSoundInstance existing = LOOPS.remove(droneId);
+        if (existing != null) {
+            existing.forceStop();
+        }
+    }
+
+    private static void cleanupStoppedLoops() {
+        LOOPS.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue().isStopped());
+    }
+
+    private static void clearLoops() {
+        for (final RemoteDroneLoopSoundInstance loop : LOOPS.values()) {
+            if (loop != null) {
+                loop.forceStop();
+            }
+        }
+        LOOPS.clear();
     }
 }

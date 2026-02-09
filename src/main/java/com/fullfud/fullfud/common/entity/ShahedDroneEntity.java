@@ -881,11 +881,14 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     public InteractionResult interact(final Player player, final InteractionHand hand) {
         final ItemStack heldItem = player.getItemInHand(hand);
         if (heldItem.getItem() instanceof MonitorItem) {
-            MonitorItem.setLinkedDrone(heldItem, this.getUUID());
-            if (player instanceof ServerPlayer serverPlayer) {
-                assignOwner(serverPlayer);
+            if (!level().isClientSide && player instanceof ServerPlayer serverPlayer) {
+                if (!assignOwner(serverPlayer)) {
+                    player.displayClientMessage(Component.translatable("message.fullfud.monitor.in_use"), true);
+                    return InteractionResult.FAIL;
+                }
+                MonitorItem.setLinkedDrone(heldItem, this.getUUID());
+                player.displayClientMessage(Component.translatable("message.fullfud.monitor.linked"), true);
             }
-            player.displayClientMessage(Component.translatable("message.fullfud.monitor.linked"), true);
             return InteractionResult.sidedSuccess(level().isClientSide);
         }
         if (heldItem.isEmpty() && !level().isClientSide) {
@@ -905,6 +908,12 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     public void addViewer(final ServerPlayer player) {
+        if (player == null) {
+            return;
+        }
+        if (ownerUUID != null && !ownerUUID.equals(player.getUUID())) {
+            return;
+        }
         viewerDistances.put(player.getUUID(), resolveViewDistance(player));
         sendStatusTo(player);
         recalcDesiredChunkRadius();
@@ -1355,14 +1364,22 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
     }
 
-    public void assignOwner(final ServerPlayer player) {
-        this.ownerUUID = player.getUUID();
+    public boolean assignOwner(final ServerPlayer player) {
+        if (player == null) {
+            return false;
+        }
+        final UUID playerId = player.getUUID();
+        if (this.ownerUUID != null && !this.ownerUUID.equals(playerId)) {
+            return false;
+        }
+        this.ownerUUID = playerId;
         this.ownerViewDistance = resolveViewDistance(player);
         if (level() instanceof ServerLevel serverLevel) {
             ShahedLinkData.get(serverLevel).link(getUUID(), ownerUUID);
         }
         recalcDesiredChunkRadius();
         ensureChunkTicket();
+        return true;
     }
 
     public Optional<UUID> getOwnerUUID() {
@@ -1570,6 +1587,15 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     public boolean beginRemoteControl(final ServerPlayer player) {
+        if (player == null) {
+            return false;
+        }
+        if (ownerUUID != null && !ownerUUID.equals(player.getUUID())) {
+            return false;
+        }
+        if (ownerUUID == null && !assignOwner(player)) {
+            return false;
+        }
         if (controllingPlayer != null && !controllingPlayer.equals(player.getUUID())) {
             return false;
         }
@@ -1793,17 +1819,20 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private static void setViewPoint(final ServerPlayer player, final Entity entity) {
-        if (player == null || entity == null) {
+        if (entity == null) {
             return;
         }
-        ((LatticeServerPlayer) player).setCameraWithoutViewPoint(entity);
+        if (!(player instanceof LatticeServerPlayer lattice)) {
+            return;
+        }
+        lattice.setCameraWithoutViewPoint(entity);
     }
 
     private static void clearViewPoint(final ServerPlayer player) {
-        if (player == null) {
+        if (!(player instanceof LatticeServerPlayer lattice)) {
             return;
         }
-        ((LatticeServerPlayer) player).setCameraWithoutViewPoint(player);
+        lattice.setCameraWithoutViewPoint(player);
     }
 
     private void syncViewCenter(final ServerPlayer player) {

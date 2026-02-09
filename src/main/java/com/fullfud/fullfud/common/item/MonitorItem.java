@@ -51,12 +51,15 @@ public class MonitorItem extends Item implements GeoItem {
         final UUID droneId = linkedDrone.get();
         final ServerLevel serverLevel = serverPlayer.serverLevel();
         ShahedDroneEntity.find(serverLevel, droneId).ifPresentOrElse(drone -> {
-            drone.assignOwner(serverPlayer);
-            drone.addViewer(serverPlayer);
+            if (!drone.assignOwner(serverPlayer)) {
+                player.displayClientMessage(Component.translatable("message.fullfud.monitor.in_use"), true);
+                return;
+            }
             if (!drone.beginRemoteControl(serverPlayer)) {
                 player.displayClientMessage(Component.translatable("message.fullfud.monitor.in_use"), true);
                 return;
             }
+            drone.addViewer(serverPlayer);
             try {
                 NetworkHooks.openScreen(serverPlayer,
                     new SimpleMenuProvider((containerId, inv, ply) -> new ShahedMonitorMenu(containerId, inv, droneId, drone.getId()),

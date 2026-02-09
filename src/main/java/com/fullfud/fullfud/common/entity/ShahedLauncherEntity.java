@@ -181,10 +181,13 @@ public class ShahedLauncherEntity extends Entity implements GeoEntity {
         if (drone == null) {
             return;
         }
-        drone.launchFromLauncher(this);
         if (player instanceof ServerPlayer serverPlayer) {
-            drone.assignOwner(serverPlayer);
+            if (!drone.assignOwner(serverPlayer)) {
+                player.displayClientMessage(Component.translatable("message.fullfud.monitor.in_use"), true);
+                return;
+            }
         }
+        drone.launchFromLauncher(this);
         MonitorItem.setLinkedDrone(monitorStack, drone.getUUID());
         player.displayClientMessage(Component.translatable("message.fullfud.monitor.linked"), true);
         clearStoredDrone();
