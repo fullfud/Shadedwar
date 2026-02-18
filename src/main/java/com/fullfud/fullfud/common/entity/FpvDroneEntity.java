@@ -774,19 +774,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
     
     private void ensureChunkTicket() {
-        if (!(level() instanceof ServerLevel serverLevel)) {
-            return;
-        }
-        final ChunkPos currentPos = new ChunkPos(BlockPos.containing(position()));
-        final int radius = Mth.clamp(getDistance(), 2, 10);
-        if (lastTicketPos == null || !lastTicketPos.equals(currentPos) || lastTicketRadius != radius) {
-            if (lastTicketPos != null) {
-                serverLevel.getChunkSource().removeRegionTicket(FPV_TICKET, lastTicketPos, lastTicketRadius, getId());
-            }
-            serverLevel.getChunkSource().addRegionTicket(FPV_TICKET, currentPos, radius, getId());
-            lastTicketPos = currentPos;
-            lastTicketRadius = radius;
-        }
+        // Force-loaded chunk tickets are intentionally disabled to avoid server memory pressure.
+        releaseChunkTicket();
     }
     
     private void releaseChunkTicket() {
@@ -801,19 +790,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private void ensurePlayerChunkTicket(final ServerPlayer player) {
-        if (player == null || !(level() instanceof ServerLevel serverLevel)) {
-            return;
-        }
-        final ChunkPos currentPos = player.chunkPosition();
-        final int radius = 2;
-        if (lastPlayerTicketPos == null || !lastPlayerTicketPos.equals(currentPos) || lastPlayerTicketRadius != radius) {
-            if (lastPlayerTicketPos != null) {
-                serverLevel.getChunkSource().removeRegionTicket(FPV_PLAYER_TICKET, lastPlayerTicketPos, lastPlayerTicketRadius, getId());
-            }
-            serverLevel.getChunkSource().addRegionTicket(FPV_PLAYER_TICKET, currentPos, radius, getId());
-            lastPlayerTicketPos = currentPos;
-            lastPlayerTicketRadius = radius;
-        }
+        // Force-loaded chunk tickets are intentionally disabled to avoid server memory pressure.
+        releasePlayerChunkTicket();
     }
 
     private void releasePlayerChunkTicket() {

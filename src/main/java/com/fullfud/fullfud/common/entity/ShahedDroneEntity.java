@@ -1422,29 +1422,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private void ensureChunkTicket() {
-        if (!(level() instanceof ServerLevel serverLevel)) {
-            return;
-        }
-        if (!keepChunksLoadedWithoutPlayer || controllingPlayer != null) {
-            releaseChunkTicket();
-            return;
-        }
-        if (desiredChunkRadius <= 0) {
-            recalcDesiredChunkRadius();
-        }
-        if (desiredChunkRadius <= 0) {
-            releaseChunkTicket();
-            return;
-        }
-        final ChunkPos chunkPos = this.chunkPosition();
-        if (chunkPos.equals(lastTicketPos) && desiredChunkRadius == lastTicketRadius) {
-            return;
-        }
+        // Force-loaded chunk tickets are intentionally disabled to avoid server memory pressure.
         releaseChunkTicket();
-        final ServerChunkCache chunkSource = serverLevel.getChunkSource();
-        chunkSource.addRegionTicket(SHAHED_TICKET, chunkPos, desiredChunkRadius, this.getId());
-        lastTicketPos = chunkPos;
-        lastTicketRadius = desiredChunkRadius;
     }
 
     private void releaseChunkTicket() {
