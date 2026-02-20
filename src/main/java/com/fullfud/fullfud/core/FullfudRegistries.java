@@ -93,7 +93,7 @@ public final class FullfudRegistries {
     public static final RegistryObject<EntityType<ShahedDroneEntity>> SHAHED_ENTITY = ENTITY_TYPES.register("shahed_136", () ->
         EntityType.Builder.<ShahedDroneEntity>of(ShahedDroneEntity::new, MobCategory.MISC)
             .sized(3.0F, 1.0F)
-            .clientTrackingRange(1024)
+            .clientTrackingRange(2000)
             .updateInterval(1)
             .setShouldReceiveVelocityUpdates(true)
             .build(resource("shahed_136").toString())

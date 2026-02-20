@@ -39,7 +39,7 @@ public class ShahedDroneRenderer extends GeoEntityRenderer<ShahedDroneEntity> {
             return true;
         }
         final double distSq = x * x + y * y + z * z;
-        final double max = 800.0D;
+        final double max = 2000.0D;
         return distSq <= max * max && frustum.isVisible(entity.getBoundingBoxForCulling());
     }
 }

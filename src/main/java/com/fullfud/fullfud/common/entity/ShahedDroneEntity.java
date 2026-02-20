@@ -9,6 +9,7 @@ import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
+import com.fullfud.fullfud.core.network.packet.ShahedGhostUpdatePacket;
 import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
@@ -133,6 +134,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_KEEP_CHUNKS = "KeepChunks";
 
     private static final int STATUS_INTERVAL = 1;
+    private static final int GHOST_BROADCAST_INTERVAL_TICKS = 2;
+    private static final double GHOST_BROADCAST_RANGE_BLOCKS = 10000.0D;
     private static final int CONTROL_TIMEOUT_TICKS = 20;
     private static final double TICK_SECONDS = 1.0D / 20.0D;
     private static final double BASE_MASS_KG = 210.0D;
@@ -356,6 +359,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 syncViewCenter(cp);
             }
             broadcastEngineAudio();
+            if (tickCount % GHOST_BROADCAST_INTERVAL_TICKS == 0) {
+                broadcastGhostState();
+            }
             if (tickCount % STATUS_INTERVAL == 0) {
                 broadcastStatus();
             }
@@ -472,6 +478,40 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     public float getVisualPitch(float partialTick) {
         return (float) Mth.lerp(partialTick, bodyPitchO, bodyPitch);
+    }
+
+    public void applyClientGhostState(final double x,
+                                      final double y,
+                                      final double z,
+                                      final double velocityX,
+                                      final double velocityY,
+                                      final double velocityZ,
+                                      final float yaw,
+                                      final float pitch,
+                                      final float roll,
+                                      final float thrust,
+                                      final int colorId,
+                                      final boolean onLauncher) {
+        this.setPos(x, y, z);
+        this.setYRot(Mth.wrapDegrees(yaw));
+        this.yRotO = this.getYRot();
+        this.setXRot(Mth.clamp(pitch, -90.0F, 90.0F));
+        this.xRotO = this.getXRot();
+        this.bodyYaw = this.getYRot();
+        this.bodyPitch = this.getXRot();
+        this.bodyPitchO = this.bodyPitch;
+        this.bodyRoll = Mth.wrapDegrees(roll);
+        this.bodyRollO = this.bodyRoll;
+        this.entityData.set(DATA_ROLL, (float) this.bodyRoll);
+        this.entityData.set(DATA_THRUST, Mth.clamp(thrust, 0.0F, 1.0F));
+        this.entityData.set(DATA_COLOR, ShahedColor.byId(colorId).getId());
+        this.entityData.set(DATA_ON_LAUNCHER, onLauncher);
+        this.noPhysics = onLauncher;
+        this.setNoGravity(onLauncher);
+        this.setDeltaMovement(velocityX, velocityY, velocityZ);
+        this.linearVelocity = new Vec3(velocityX / TICK_SECONDS, velocityY / TICK_SECONDS, velocityZ / TICK_SECONDS);
+        this.lerpSteps = 0;
+        updateBoundingBox();
     }
 
     private void updateControlTimeout() {
@@ -1047,6 +1087,37 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 continue;
             }
             sendStatusTo(viewer);
+        }
+    }
+
+    private void broadcastGhostState() {
+        if (!(level() instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        final double rangeSqr = GHOST_BROADCAST_RANGE_BLOCKS * GHOST_BROADCAST_RANGE_BLOCKS;
+        final ShahedGhostUpdatePacket packet = new ShahedGhostUpdatePacket(
+            this.getUUID(),
+            this.getX(),
+            this.getY(),
+            this.getZ(),
+            this.getDeltaMovement().x,
+            this.getDeltaMovement().y,
+            this.getDeltaMovement().z,
+            this.getYRot(),
+            this.getXRot(),
+            (float) bodyRoll,
+            getThrust(),
+            getColor().getId(),
+            isOnLauncher()
+        );
+        for (final ServerPlayer player : serverLevel.players()) {
+            if (player == null || player.isRemoved()) {
+                continue;
+            }
+            if (player.distanceToSqr(this) > rangeSqr) {
+                continue;
+            }
+            FullfudNetwork.getChannel().send(PacketDistributor.PLAYER.with(() -> player), packet);
         }
     }
 

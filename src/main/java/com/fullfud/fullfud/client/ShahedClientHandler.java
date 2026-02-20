@@ -12,6 +12,7 @@ import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
+import com.fullfud.fullfud.core.network.packet.ShahedGhostUpdatePacket;
 import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -29,6 +30,8 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
@@ -50,8 +53,10 @@ import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
@@ -72,6 +77,11 @@ public final class ShahedClientHandler {
     private static ShahedStatusPacket lastStatus;
     private static long lastStatusTimestamp;
     private static final Map<UUID, EngineAudioController> ENGINE_AUDIO = new HashMap<>();
+    private static final Map<UUID, GhostState> GHOST_STATES = new HashMap<>();
+    private static final Map<UUID, ShahedDroneEntity> GHOST_ENTITIES = new HashMap<>();
+    private static final int GHOST_TTL_TICKS = 60;
+    private static final double GHOST_RENDER_RANGE_BLOCKS = 10000.0D;
+    private static final int GHOST_RENDER_LIGHT = 0x00F000F0;
 
     private ShahedClientHandler() {
     }
@@ -105,6 +115,24 @@ public final class ShahedClientHandler {
     public static void handleStatusPacket(final ShahedStatusPacket packet) {
         lastStatus = packet;
         lastStatusTimestamp = System.currentTimeMillis();
+    }
+
+    public static void handleGhostPacket(final ShahedGhostUpdatePacket packet) {
+        if (packet == null || packet.droneId() == null) {
+            return;
+        }
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.level == null) {
+            return;
+        }
+        final long nowTick = minecraft.level.getGameTime();
+        GHOST_STATES.compute(packet.droneId(), (droneId, existing) -> {
+            if (existing == null) {
+                return GhostState.create(packet, nowTick);
+            }
+            existing.update(packet, nowTick);
+            return existing;
+        });
     }
 
     public static void handleLinkPacket(final ShahedLinkPacket packet) {
@@ -166,6 +194,9 @@ public final class ShahedClientHandler {
         if (minecraft.level == null || minecraft.isPaused()) {
             ENGINE_AUDIO.values().forEach(EngineAudioController::stop);
             ENGINE_AUDIO.clear();
+            if (minecraft.level == null) {
+                clearGhostState();
+            }
             return;
         }
         ENGINE_AUDIO.values().forEach(controller -> controller.seen = false);
@@ -176,6 +207,7 @@ public final class ShahedClientHandler {
             }
         }
         ENGINE_AUDIO.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
+        cleanupGhostState(minecraft);
     }
 
     private static final class EngineAudioController {
@@ -263,6 +295,219 @@ public final class ShahedClientHandler {
         }
     }
 
+    private static void clearGhostState() {
+        GHOST_STATES.clear();
+        GHOST_ENTITIES.clear();
+    }
+
+    private static void cleanupGhostState(final Minecraft minecraft) {
+        if (minecraft == null || minecraft.level == null) {
+            clearGhostState();
+            return;
+        }
+        final long nowTick = minecraft.level.getGameTime();
+        GHOST_STATES.entrySet().removeIf(entry -> nowTick - entry.getValue().lastUpdateTick > GHOST_TTL_TICKS);
+        GHOST_ENTITIES.entrySet().removeIf(entry ->
+            !GHOST_STATES.containsKey(entry.getKey()) || entry.getValue() == null || entry.getValue().level() != minecraft.level
+        );
+    }
+
+    private static void renderGhostShaheds(final RenderLevelStageEvent event, final Minecraft minecraft) {
+        if (minecraft == null || minecraft.level == null || minecraft.player == null || GHOST_STATES.isEmpty()) {
+            return;
+        }
+
+        final double maxRangeSqr = GHOST_RENDER_RANGE_BLOCKS * GHOST_RENDER_RANGE_BLOCKS;
+        final var cameraPos = event.getCamera().getPosition();
+        final float partialTick = event.getPartialTick();
+        final PoseStack poseStack = event.getPoseStack();
+        final EntityRenderDispatcher dispatcher = minecraft.getEntityRenderDispatcher();
+        final MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
+        final Set<UUID> loadedShaheds = new HashSet<>();
+        for (final var entity : minecraft.level.entitiesForRendering()) {
+            if (entity instanceof ShahedDroneEntity drone) {
+                loadedShaheds.add(drone.getUUID());
+            }
+        }
+        boolean renderedAny = false;
+
+        for (final Map.Entry<UUID, GhostState> entry : GHOST_STATES.entrySet()) {
+            final UUID droneId = entry.getKey();
+            final GhostState state = entry.getValue();
+
+            if (loadedShaheds.contains(droneId)) {
+                continue;
+            }
+
+            final double x = state.x(partialTick);
+            final double y = state.y(partialTick);
+            final double z = state.z(partialTick);
+
+            final double dx = x - cameraPos.x;
+            final double dy = y - cameraPos.y;
+            final double dz = z - cameraPos.z;
+            final double distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq > maxRangeSqr) {
+                continue;
+            }
+
+            final ShahedDroneEntity ghost = getOrCreateGhostEntity(minecraft, droneId);
+            ghost.applyClientGhostState(
+                x,
+                y,
+                z,
+                state.velocityX(partialTick),
+                state.velocityY(partialTick),
+                state.velocityZ(partialTick),
+                state.yaw(partialTick),
+                state.pitch(partialTick),
+                state.roll(partialTick),
+                state.thrust(partialTick),
+                state.colorId,
+                state.onLauncher
+            );
+
+            dispatcher.render(ghost, dx, dy, dz, ghost.getYRot(), partialTick, poseStack, bufferSource, GHOST_RENDER_LIGHT);
+            renderedAny = true;
+        }
+
+        if (renderedAny) {
+            bufferSource.endBatch();
+        }
+    }
+
+    private static ShahedDroneEntity getOrCreateGhostEntity(final Minecraft minecraft, final UUID droneId) {
+        ShahedDroneEntity ghost = GHOST_ENTITIES.get(droneId);
+        if (ghost != null && ghost.level() == minecraft.level) {
+            return ghost;
+        }
+        ghost = new ShahedDroneEntity(FullfudRegistries.SHAHED_ENTITY.get(), minecraft.level);
+        ghost.setUUID(droneId);
+        ghost.noCulling = true;
+        GHOST_ENTITIES.put(droneId, ghost);
+        return ghost;
+    }
+
+    private static final class GhostState {
+        private double prevX;
+        private double prevY;
+        private double prevZ;
+        private double x;
+        private double y;
+        private double z;
+        private double prevVelocityX;
+        private double prevVelocityY;
+        private double prevVelocityZ;
+        private double velocityX;
+        private double velocityY;
+        private double velocityZ;
+        private float prevYaw;
+        private float prevPitch;
+        private float prevRoll;
+        private float prevThrust;
+        private float yaw;
+        private float pitch;
+        private float roll;
+        private float thrust;
+        private int colorId;
+        private boolean onLauncher;
+        private long lastUpdateTick;
+
+        private static GhostState create(final ShahedGhostUpdatePacket packet, final long nowTick) {
+            final GhostState state = new GhostState();
+            state.prevX = packet.x();
+            state.prevY = packet.y();
+            state.prevZ = packet.z();
+            state.x = packet.x();
+            state.y = packet.y();
+            state.z = packet.z();
+            state.prevVelocityX = packet.velocityX();
+            state.prevVelocityY = packet.velocityY();
+            state.prevVelocityZ = packet.velocityZ();
+            state.velocityX = packet.velocityX();
+            state.velocityY = packet.velocityY();
+            state.velocityZ = packet.velocityZ();
+            state.prevYaw = packet.yaw();
+            state.prevPitch = packet.pitch();
+            state.prevRoll = packet.roll();
+            state.prevThrust = packet.thrust();
+            state.yaw = packet.yaw();
+            state.pitch = packet.pitch();
+            state.roll = packet.roll();
+            state.thrust = packet.thrust();
+            state.colorId = packet.colorId();
+            state.onLauncher = packet.onLauncher();
+            state.lastUpdateTick = nowTick;
+            return state;
+        }
+
+        private void update(final ShahedGhostUpdatePacket packet, final long nowTick) {
+            prevX = x;
+            prevY = y;
+            prevZ = z;
+            prevVelocityX = velocityX;
+            prevVelocityY = velocityY;
+            prevVelocityZ = velocityZ;
+            prevYaw = yaw;
+            prevPitch = pitch;
+            prevRoll = roll;
+            prevThrust = thrust;
+            x = packet.x();
+            y = packet.y();
+            z = packet.z();
+            velocityX = packet.velocityX();
+            velocityY = packet.velocityY();
+            velocityZ = packet.velocityZ();
+            yaw = packet.yaw();
+            pitch = packet.pitch();
+            roll = packet.roll();
+            thrust = packet.thrust();
+            colorId = packet.colorId();
+            onLauncher = packet.onLauncher();
+            lastUpdateTick = nowTick;
+        }
+
+        private double x(final float partialTick) {
+            return Mth.lerp(partialTick, prevX, x);
+        }
+
+        private double y(final float partialTick) {
+            return Mth.lerp(partialTick, prevY, y);
+        }
+
+        private double z(final float partialTick) {
+            return Mth.lerp(partialTick, prevZ, z);
+        }
+
+        private double velocityX(final float partialTick) {
+            return Mth.lerp(partialTick, prevVelocityX, velocityX);
+        }
+
+        private double velocityY(final float partialTick) {
+            return Mth.lerp(partialTick, prevVelocityY, velocityY);
+        }
+
+        private double velocityZ(final float partialTick) {
+            return Mth.lerp(partialTick, prevVelocityZ, velocityZ);
+        }
+
+        private float yaw(final float partialTick) {
+            return Mth.rotLerp(partialTick, prevYaw, yaw);
+        }
+
+        private float pitch(final float partialTick) {
+            return Mth.rotLerp(partialTick, prevPitch, pitch);
+        }
+
+        private float roll(final float partialTick) {
+            return Mth.rotLerp(partialTick, prevRoll, roll);
+        }
+
+        private float thrust(final float partialTick) {
+            return Mth.lerp(partialTick, prevThrust, thrust);
+        }
+    }
+
     private static void onRenderLevelStage(final RenderLevelStageEvent event) {
         if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
             return;
@@ -271,6 +516,7 @@ public final class ShahedClientHandler {
         if (minecraft == null || minecraft.player == null || minecraft.level == null) {
             return;
         }
+        renderGhostShaheds(event, minecraft);
         if (!isHoldingBattery(minecraft.player)) {
             return;
         }
