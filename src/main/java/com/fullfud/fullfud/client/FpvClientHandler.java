@@ -404,6 +404,8 @@ public final class FpvClientHandler {
     }
 
     private static void resetState() {
+        final Minecraft minecraft = Minecraft.getInstance();
+        final boolean shouldRestoreCamera = minecraft != null && minecraft.getCameraEntity() instanceof FpvDroneEntity;
         restoreCameraType();
         restoreFov();
         if (inFpvMode) {
@@ -411,7 +413,9 @@ public final class FpvClientHandler {
             destroyFpvChain();
         }
         stopActiveDroneAudio();
-        forceCameraToPlayer();
+        if (shouldRestoreCamera) {
+            forceCameraToPlayer();
+        }
         activeDrone = null;
         throttleDemand = 0.0F;
         escRequested = false;
