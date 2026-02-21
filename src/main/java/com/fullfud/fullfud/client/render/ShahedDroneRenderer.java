@@ -2,6 +2,7 @@ package com.fullfud.fullfud.client.render;
 
 import com.fullfud.fullfud.client.model.ShahedDroneModel;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
+import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -39,7 +40,7 @@ public class ShahedDroneRenderer extends GeoEntityRenderer<ShahedDroneEntity> {
             return true;
         }
         final double distSq = x * x + y * y + z * z;
-        final double max = 2000.0D;
+        final double max = Math.max(1.0D, FullfudClientConfig.CLIENT.shahedRenderDistanceCap.get());
         return distSq <= max * max && frustum.isVisible(entity.getBoundingBoxForCulling());
     }
 }

@@ -83,12 +83,10 @@ public final class FpvClientHandler {
     private static boolean mouseInitialized = false;
     private static double mouseAccumX;
     private static double mouseAccumY;
-    private static final double MOUSE_SENSITIVITY = 0.015D;
 
     private static boolean inFpvMode = false;
     private static CameraType previousCameraType;
     private static boolean forcedFirstPerson;
-    private static final int FPV_FOV = 110;
     private static Integer previousFov;
     private static boolean forcedFov;
     private static PostChain fpvPostChain;
@@ -160,16 +158,21 @@ public final class FpvClientHandler {
         }
 
         inFpvMode = true;
-        clientTime += event.renderTickTime * 0.02F;
+        final double shaderTimeScale = FullfudClientConfig.CLIENT.fpvPostShaderTimeScale.get();
+        clientTime += event.renderTickTime * (float) shaderTimeScale;
 
-        ensureFpvChain(minecraft);
-        if (fpvPostChain != null) {
-            resizeFpvChainIfNeeded(minecraft);
-            updateShaderUniforms(signal);
-            try {
-                fpvPostChain.process(event.renderTickTime);
-            } catch (Exception e) {
+        if (FullfudClientConfig.CLIENT.fpvPostShaderEnabled.get()) {
+            ensureFpvChain(minecraft);
+            if (fpvPostChain != null) {
+                resizeFpvChainIfNeeded(minecraft);
+                updateShaderUniforms(signal);
+                try {
+                    fpvPostChain.process(event.renderTickTime);
+                } catch (Exception e) {
+                }
             }
+        } else {
+            destroyFpvChain();
         }
     }
 
@@ -246,7 +249,9 @@ public final class FpvClientHandler {
 
         ensureFirstPerson(minecraft);
         ensureFpvFov(minecraft);
-        suppressSpectatorHotbarKeys(minecraft);
+        if (FullfudClientConfig.CLIENT.fpvSuppressSpectatorHotbarKeys.get()) {
+            suppressSpectatorHotbarKeys(minecraft);
+        }
 
         if (activeDrone == null || !activeDrone.equals(drone.getUUID())) {
             throttleDemand = drone.getThrust();
@@ -266,14 +271,15 @@ public final class FpvClientHandler {
             mouseInitialized = true;
         }
 
-        if (canProcessInput) {
+        if (canProcessInput && FullfudClientConfig.CLIENT.fpvCameraMouseLookEnabled.get()) {
             double dx = curX - lastMouseX;
             double dy = curY - lastMouseY;
-            
-            mouseAccumX += dx * MOUSE_SENSITIVITY;
-            mouseAccumY -= dy * MOUSE_SENSITIVITY;
+
+            final double sensitivity = FullfudClientConfig.CLIENT.fpvCameraMouseSensitivity.get();
+            mouseAccumX += dx * sensitivity;
+            mouseAccumY -= dy * sensitivity;
         }
-        
+
         lastMouseX = curX;
         lastMouseY = curY;
 
@@ -297,9 +303,15 @@ public final class FpvClientHandler {
         final boolean jumpDown = minecraft.options.keyJump.isDown();
 
         if (controllerState.present()) {
-            pitchInput = controllerState.pitch();
-            rollInput = controllerState.roll();
-            yawInput = controllerState.yaw();
+            if (FullfudClientConfig.CLIENT.fpvCameraControllerPriority.get()) {
+                pitchInput = controllerState.pitch();
+                rollInput = controllerState.roll();
+                yawInput = controllerState.yaw();
+            } else {
+                pitchInput = Mth.clamp(pitchInput + controllerState.pitch(), -1.0F, 1.0F);
+                rollInput = Mth.clamp(rollInput + controllerState.roll(), -1.0F, 1.0F);
+                yawInput = Mth.clamp(yawInput + controllerState.yaw(), -1.0F, 1.0F);
+            }
         }
 
         if (controllerState.present() && controllerState.hasThrottle()) {
@@ -321,7 +333,7 @@ public final class FpvClientHandler {
         
         FullfudNetwork.getChannel().sendToServer(new FpvControlPacket(drone.getUUID(), pitchInput, rollInput, yawInput, throttleDemand, armAction));
 
-        if (minecraft.screen instanceof PauseScreen && !escRequested) {
+        if (FullfudClientConfig.CLIENT.fpvCameraReleaseOnPause.get() && minecraft.screen instanceof PauseScreen && !escRequested) {
             escRequested = true;
             FullfudNetwork.getChannel().sendToServer(new FpvReleasePacket(drone.getUUID()));
         } else if (!(minecraft.screen instanceof PauseScreen)) {
@@ -347,6 +359,10 @@ public final class FpvClientHandler {
 
     private static void ensureFirstPerson(final Minecraft minecraft) {
         if (minecraft == null || minecraft.options == null) {
+            return;
+        }
+        if (!FullfudClientConfig.CLIENT.fpvCameraForceFirstPerson.get()) {
+            restoreCameraType();
             return;
         }
         if (forcedFirstPerson) {
@@ -378,11 +394,15 @@ public final class FpvClientHandler {
         if (minecraft == null || minecraft.options == null) {
             return;
         }
+        if (!FullfudClientConfig.CLIENT.fpvCameraForceFov.get()) {
+            restoreFov();
+            return;
+        }
         if (forcedFov) {
             return;
         }
         previousFov = minecraft.options.fov().get();
-        minecraft.options.fov().set(FPV_FOV);
+        minecraft.options.fov().set(FullfudClientConfig.CLIENT.fpvCameraFov.get());
         forcedFov = true;
     }
 
@@ -524,6 +544,9 @@ public final class FpvClientHandler {
     }
 
     private static void onRenderGui(final net.minecraftforge.client.event.RenderGuiEvent.Post event) {
+        if (!FullfudClientConfig.CLIENT.fpvHudEnabled.get()) {
+            return;
+        }
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;
@@ -630,6 +653,9 @@ public final class FpvClientHandler {
     }
 
     private static void onRenderOverlay(final RenderGuiOverlayEvent.Pre event) {
+        if (!FullfudClientConfig.CLIENT.fpvHideVanillaHud.get()) {
+            return;
+        }
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;
@@ -638,6 +664,9 @@ public final class FpvClientHandler {
     }
 
     private static void onRenderHand(final RenderHandEvent event) {
+        if (!FullfudClientConfig.CLIENT.fpvHideHand.get()) {
+            return;
+        }
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null || minecraft.player == null) return;
         if (!(minecraft.getCameraEntity() instanceof FpvDroneEntity drone)) return;

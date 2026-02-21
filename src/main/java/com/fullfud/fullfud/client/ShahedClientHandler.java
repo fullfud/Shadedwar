@@ -10,6 +10,7 @@ import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.item.MonitorItem;
 import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedGhostUpdatePacket;
@@ -30,8 +31,10 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.MenuScreens;
 import net.minecraft.client.renderer.GameRenderer;
+import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
@@ -39,6 +42,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.level.LightLayer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.EntityRenderersEvent;
@@ -79,9 +83,6 @@ public final class ShahedClientHandler {
     private static final Map<UUID, EngineAudioController> ENGINE_AUDIO = new HashMap<>();
     private static final Map<UUID, GhostState> GHOST_STATES = new HashMap<>();
     private static final Map<UUID, ShahedDroneEntity> GHOST_ENTITIES = new HashMap<>();
-    private static final int GHOST_TTL_TICKS = 60;
-    private static final double GHOST_RENDER_RANGE_BLOCKS = 10000.0D;
-    private static final int GHOST_RENDER_LIGHT = 0x00F000F0;
 
     private ShahedClientHandler() {
     }
@@ -119,6 +120,11 @@ public final class ShahedClientHandler {
 
     public static void handleGhostPacket(final ShahedGhostUpdatePacket packet) {
         if (packet == null || packet.droneId() == null) {
+            return;
+        }
+        if (!FullfudClientConfig.CLIENT.shahedGhostRenderEnabled.get()) {
+            GHOST_STATES.remove(packet.droneId());
+            GHOST_ENTITIES.remove(packet.droneId());
             return;
         }
         final Minecraft minecraft = Minecraft.getInstance();
@@ -199,6 +205,12 @@ public final class ShahedClientHandler {
             }
             return;
         }
+        if (!FullfudClientConfig.CLIENT.shahedUseLocalEntityAudio.get()) {
+            ENGINE_AUDIO.values().forEach(EngineAudioController::stop);
+            ENGINE_AUDIO.clear();
+            updateGhostState(minecraft);
+            return;
+        }
         ENGINE_AUDIO.values().forEach(controller -> controller.seen = false);
         for (final var entity : minecraft.level.entitiesForRendering()) {
             if (entity instanceof ShahedDroneEntity drone) {
@@ -207,11 +219,10 @@ public final class ShahedClientHandler {
             }
         }
         ENGINE_AUDIO.entrySet().removeIf(entry -> entry.getValue().shouldRemove());
-        cleanupGhostState(minecraft);
+        updateGhostState(minecraft);
     }
 
     private static final class EngineAudioController {
-        private static final float ACTIVE_THRESHOLD = 0.02F;
         private final ShahedDroneEntity drone;
         private ShahedEngineLoopSound loopSound;
         private float lastThrust;
@@ -247,21 +258,22 @@ public final class ShahedClientHandler {
                 stop();
                 return;
             }
+            final float activeThreshold = (float) Mth.clamp(FullfudClientConfig.CLIENT.shahedLocalAudioActiveThreshold.get(), 0.0D, 1.0D);
             final float clamped = Mth.clamp(thrust, 0.0F, 1.0F);
-            if (clamped > ACTIVE_THRESHOLD) {
-                if (lastThrust <= ACTIVE_THRESHOLD) {
+            if (clamped > activeThreshold) {
+                if (lastThrust <= activeThreshold) {
                     playOneShot(FullfudRegistries.SHAHED_ENGINE_START.get(), clamped);
                 }
                 ensureLoop();
                 if (loopSound != null) {
                     loopSound.setEngineMix(clamped);
                 }
-            } else if (lastThrust > ACTIVE_THRESHOLD) {
+            } else if (lastThrust > activeThreshold) {
                 stop();
                 playOneShot(FullfudRegistries.SHAHED_ENGINE_END.get(), lastThrust);
             }
             lastThrust = clamped;
-            if (clamped <= ACTIVE_THRESHOLD && loopSound != null) {
+            if (clamped <= activeThreshold && loopSound != null) {
                 loopSound.setEngineMix(0.0F);
             }
         }
@@ -280,7 +292,8 @@ public final class ShahedClientHandler {
                 return;
             }
             loopSound = new ShahedEngineLoopSound(drone);
-            loopSound.setEngineMix(Math.max(lastThrust, ACTIVE_THRESHOLD));
+            final float activeThreshold = (float) Mth.clamp(FullfudClientConfig.CLIENT.shahedLocalAudioActiveThreshold.get(), 0.0D, 1.0D);
+            loopSound.setEngineMix(Math.max(lastThrust, activeThreshold));
             minecraft.getSoundManager().play(loopSound);
         }
 
@@ -300,24 +313,40 @@ public final class ShahedClientHandler {
         GHOST_ENTITIES.clear();
     }
 
+    private static void updateGhostState(final Minecraft minecraft) {
+        if (!FullfudClientConfig.CLIENT.shahedGhostRenderEnabled.get()) {
+            clearGhostState();
+            return;
+        }
+        cleanupGhostState(minecraft);
+    }
+
     private static void cleanupGhostState(final Minecraft minecraft) {
         if (minecraft == null || minecraft.level == null) {
             clearGhostState();
             return;
         }
         final long nowTick = minecraft.level.getGameTime();
-        GHOST_STATES.entrySet().removeIf(entry -> nowTick - entry.getValue().lastUpdateTick > GHOST_TTL_TICKS);
+        final int ttlTicks = FullfudClientConfig.CLIENT.shahedGhostTimeoutTicks.get();
+        GHOST_STATES.entrySet().removeIf(entry -> nowTick - entry.getValue().lastUpdateTick > ttlTicks);
         GHOST_ENTITIES.entrySet().removeIf(entry ->
             !GHOST_STATES.containsKey(entry.getKey()) || entry.getValue() == null || entry.getValue().level() != minecraft.level
         );
     }
 
     private static void renderGhostShaheds(final RenderLevelStageEvent event, final Minecraft minecraft) {
+        if (!FullfudClientConfig.CLIENT.shahedGhostRenderEnabled.get()) {
+            return;
+        }
         if (minecraft == null || minecraft.level == null || minecraft.player == null || GHOST_STATES.isEmpty()) {
             return;
         }
 
-        final double maxRangeSqr = GHOST_RENDER_RANGE_BLOCKS * GHOST_RENDER_RANGE_BLOCKS;
+        final double ghostRenderRange = FullfudClientConfig.CLIENT.shahedGhostRenderRange.get();
+        if (ghostRenderRange <= 0.0D) {
+            return;
+        }
+        final double maxRangeSqr = ghostRenderRange * ghostRenderRange;
         final var cameraPos = event.getCamera().getPosition();
         final float partialTick = event.getPartialTick();
         final PoseStack poseStack = event.getPoseStack();
@@ -367,7 +396,8 @@ public final class ShahedClientHandler {
                 state.onLauncher
             );
 
-            dispatcher.render(ghost, dx, dy, dz, ghost.getYRot(), partialTick, poseStack, bufferSource, GHOST_RENDER_LIGHT);
+            final int ghostLight = resolveGhostRenderLight(minecraft, x, y, z);
+            dispatcher.render(ghost, dx, dy, dz, ghost.getYRot(), partialTick, poseStack, bufferSource, ghostLight);
             renderedAny = true;
         }
 
@@ -386,6 +416,19 @@ public final class ShahedClientHandler {
         ghost.noCulling = true;
         GHOST_ENTITIES.put(droneId, ghost);
         return ghost;
+    }
+
+    private static int resolveGhostRenderLight(final Minecraft minecraft, final double x, final double y, final double z) {
+        if (FullfudClientConfig.CLIENT.shahedGhostRenderFullBright.get()) {
+            return LightTexture.FULL_BRIGHT;
+        }
+        if (minecraft == null || minecraft.level == null) {
+            return LightTexture.FULL_BRIGHT;
+        }
+        final BlockPos pos = BlockPos.containing(x, y, z);
+        final int block = minecraft.level.getBrightness(LightLayer.BLOCK, pos);
+        final int sky = minecraft.level.getBrightness(LightLayer.SKY, pos);
+        return LightTexture.pack(block, sky);
     }
 
     private static final class GhostState {

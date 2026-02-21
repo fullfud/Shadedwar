@@ -4,6 +4,7 @@ import com.fullfud.fullfud.client.ShahedClientHandler;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
+import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import com.fullfud.fullfud.core.network.packet.ShahedStatusPacket;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -26,7 +27,6 @@ import net.minecraft.world.phys.Vec3;
 import org.joml.Quaternionf;
 
 public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMenu> {
-    private static final int CONTROL_INTERVAL = 1;
     private static final int HUD_MARGIN = 28;
 
     private DynamicTexture noiseTexture;
@@ -84,7 +84,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     protected void containerTick() {
         super.containerTick();
         final ShahedStatusPacket status = ShahedClientHandler.getLastStatus();
-        final boolean fresh = ShahedClientHandler.hasFreshStatus(2000);
+        final boolean fresh = ShahedClientHandler.hasFreshStatus(FullfudClientConfig.CLIENT.shahedStatusFreshnessMs.get());
         if (status == null || !fresh || status.signalLost()) {
             restoreCamera();
             if (this.minecraft != null) this.minecraft.setScreen(null);
@@ -95,25 +95,33 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         
         applyCameraShake(status);
 
-        if (++controlTicker >= CONTROL_INTERVAL) {
+        final int controlInterval = Math.max(1, FullfudClientConfig.CLIENT.shahedMonitorControlIntervalTicks.get());
+        if (++controlTicker >= controlInterval) {
             controlTicker = 0;
             sendControlInput();
         }
     }
     
     private void applyCameraShake(ShahedStatusPacket status) {
+        if (!FullfudClientConfig.CLIENT.shahedMonitorCameraShakeEnabled.get()) {
+            return;
+        }
         if (minecraft == null || minecraft.cameraEntity == null) return;
         if (!(minecraft.cameraEntity instanceof ShahedDroneEntity drone)) return;
 
         float thrust = status.thrust();
         float vSpeed = status.verticalSpeed();
 
-        float engineShake = (thrust * thrust) * 1.2F; 
+        final float engineShakeScale = (float) FullfudClientConfig.CLIENT.shahedMonitorEngineShakeScale.get().doubleValue();
+        float engineShake = (thrust * thrust) * engineShakeScale;
 
         float diveShake = 0.0F;
-        if (vSpeed < -15.0F) {
-            float diveFactor = Math.min(Math.abs(vSpeed) - 15.0F, 40.0F) / 40.0F; 
-            diveShake = diveFactor * 2.5F;
+        final float diveSpeedThreshold = (float) FullfudClientConfig.CLIENT.shahedMonitorDiveSpeedThreshold.get().doubleValue();
+        final float diveSpeedRange = (float) Math.max(0.01D, FullfudClientConfig.CLIENT.shahedMonitorDiveSpeedRange.get());
+        final float diveShakeScale = (float) FullfudClientConfig.CLIENT.shahedMonitorDiveShakeScale.get().doubleValue();
+        if (vSpeed < -diveSpeedThreshold) {
+            float diveFactor = Math.min(Math.abs(vSpeed) - diveSpeedThreshold, diveSpeedRange) / diveSpeedRange;
+            diveShake = diveFactor * diveShakeScale;
         }
 
         float totalShake = Math.max(engineShake, diveShake);
@@ -253,7 +261,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
     private float computeNoiseOpacityByDistance(final double distance) {
         if (distance <= 0.0D) return 0.0F;
-        return (float) Math.min(distance / 10000.0D, 0.5D);
+        final double maxDistance = Math.max(1.0D, FullfudClientConfig.CLIENT.shahedMonitorNoiseMaxDistance.get());
+        final double maxOpacity = Mth.clamp(FullfudClientConfig.CLIENT.shahedMonitorNoiseMaxOpacity.get(), 0.0D, 1.0D);
+        return (float) Math.min(distance / maxDistance, maxOpacity);
     }
 
     private float toDisplayNoise(final float percent) {
@@ -283,7 +293,12 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
 
         final Vec3 dronePos = new Vec3(status.x(), status.y(), status.z());
-        final double maxRadius = 600.0D;
+        final double maxRadius = Math.max(0.0D, FullfudClientConfig.CLIENT.shahedMonitorJammerMaxRadius.get());
+        final double fullStrengthRadius = Math.max(0.0D, FullfudClientConfig.CLIENT.shahedMonitorJammerFullStrengthRadius.get());
+        final double edgeStrength = Mth.clamp(FullfudClientConfig.CLIENT.shahedMonitorJammerEdgeStrength.get(), 0.0D, 1.0D);
+        if (maxRadius <= 0.0D) {
+            return;
+        }
         final AABB searchBox = new AABB(dronePos, dronePos).inflate(maxRadius, maxRadius, maxRadius);
         float strongest = 0.0F;
 
@@ -297,7 +312,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             if (horizontalDist > maxRadius) {
                 continue;
             }
-            final float strength = computeJammerStrength(horizontalDist);
+            final float strength = computeJammerStrength(horizontalDist, maxRadius, fullStrengthRadius, edgeStrength);
             if (strength > strongest) {
                 strongest = strength;
             }
@@ -306,15 +321,17 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         jammerDisablesControls = strongest >= 1.0F;
     }
 
-    private static float computeJammerStrength(final double horizontalDist) {
-        if (horizontalDist >= 600.0D) {
+    private static float computeJammerStrength(final double horizontalDist, final double maxRadius, final double fullStrengthRadius, final double edgeStrength) {
+        if (maxRadius <= 0.0D || horizontalDist >= maxRadius) {
             return 0.0F;
         }
-        if (horizontalDist <= 300.0D) {
+        final double clampedFullStrengthRadius = Mth.clamp(fullStrengthRadius, 0.0D, maxRadius);
+        if (horizontalDist <= clampedFullStrengthRadius) {
             return 1.0F;
         }
-        final double normalized = (horizontalDist - 300.0D) / 300.0D;
-        return (float) (1.0D - 0.99D * normalized);
+        final double falloffRange = Math.max(0.001D, maxRadius - clampedFullStrengthRadius);
+        final double normalized = (horizontalDist - clampedFullStrengthRadius) / falloffRange;
+        return (float) (1.0D - (1.0D - edgeStrength) * normalized);
     }
 
     private void drawStatusOverlay(final GuiGraphics graphics, final float partialTick) {
@@ -366,7 +383,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         
 
         final ShahedDroneEntity drone = resolveDrone();
-        if (drone != null) {
+        if (drone != null && FullfudClientConfig.CLIENT.shahedMonitorPreviewEnabled.get()) {
             final int previewSize = 80;
             final int previewX = width - previewSize - margin;
             final int previewY = height - previewSize - margin;
@@ -376,7 +393,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
 
         drawPowerBar(graphics, width / 2 - 80, height - 30, status.thrust());
 
-        drawReticle(graphics);
+        if (FullfudClientConfig.CLIENT.shahedMonitorReticleEnabled.get()) {
+            drawReticle(graphics);
+        }
 
         if (status.signalLost()) {
             graphics.drawString(font, Component.translatable("message.fullfud.monitor.turn"), width / 2 - 70, height / 2, 0xFFFF5555, false);
@@ -462,7 +481,8 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         final double dz = st.z() - this.minecraft.player.getZ();
         final double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
 
-        if (distance >= 10000.0D) {
+        final double controlMaxDistance = Math.max(1.0D, FullfudClientConfig.CLIENT.shahedMonitorControlMaxDistance.get());
+        if (distance >= controlMaxDistance) {
             final float vertical = -1.0F;
             final float strafe = 0.0F;
             final float thrustDelta = 0.0F;
@@ -478,11 +498,12 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         final float pitchInput = boolValue(ascendPressed) - boolValue(descendPressed);
         final float strafe = boolValue(strafeRightPressed) - boolValue(strafeLeftPressed);
         float thrustDelta = 0.0F;
+        final float thrustDeltaStep = (float) Mth.clamp(FullfudClientConfig.CLIENT.shahedMonitorThrustDeltaStep.get(), 0.0D, 1.0D);
         if (increasePowerPressed) {
-            thrustDelta += 0.02F;
+            thrustDelta += thrustDeltaStep;
         }
         if (decreasePowerPressed) {
-            thrustDelta -= 0.02F;
+            thrustDelta -= thrustDeltaStep;
         }
 
         ShahedClientHandler.sendControlPacket(menu.getDroneId(), pitchInput, strafe, 0.0F, thrustDelta);
@@ -553,7 +574,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     }
 
     private boolean hasLiveFeed(final ShahedStatusPacket status) {
-        return hasCameraFeed && ShahedClientHandler.hasFreshStatus(2000) && status != null;
+        return hasCameraFeed
+            && ShahedClientHandler.hasFreshStatus(FullfudClientConfig.CLIENT.shahedStatusFreshnessMs.get())
+            && status != null;
     }
 
     private void resetKeyStates() {

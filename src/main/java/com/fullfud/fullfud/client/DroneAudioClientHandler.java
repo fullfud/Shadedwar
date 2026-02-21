@@ -4,11 +4,13 @@ import com.fullfud.fullfud.client.sound.RemoteDroneLoopSoundInstance;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 
@@ -37,8 +39,12 @@ public final class DroneAudioClientHandler {
             clearLoops();
             return;
         }
+        if (!FullfudClientConfig.CLIENT.droneAudioRemoteEnabled.get()) {
+            clearLoops();
+            return;
+        }
         cleanupStoppedLoops();
-        if (isDroneEntityPresent(mc, packet.droneId())) {
+        if (shouldMuteForLoadedEntity(mc, packet.droneType(), packet.droneId())) {
             stopLoop(packet.droneId());
             return;
         }
@@ -58,13 +64,15 @@ public final class DroneAudioClientHandler {
         }
 
         final long tick = mc.level.getGameTime();
+        final double volumeScale = FullfudClientConfig.CLIENT.droneAudioRemoteVolumeScale.get();
+        final float scaledVolume = (float) Mth.clamp(packet.volume() * volumeScale, 0.0D, 10.0D);
         RemoteDroneLoopSoundInstance instance = LOOPS.get(packet.droneId());
         if (instance == null || instance.isStopped()) {
             instance = new RemoteDroneLoopSoundInstance(event);
             LOOPS.put(packet.droneId(), instance);
             mc.getSoundManager().play(instance);
         }
-        instance.update(packet.x(), packet.y(), packet.z(), packet.volume(), packet.pitch(), tick);
+        instance.update(packet.x(), packet.y(), packet.z(), scaledVolume, packet.pitch(), tick);
     }
 
     public static void handleOneShot(final DroneAudioOneShotPacket packet) {
@@ -76,8 +84,12 @@ public final class DroneAudioClientHandler {
             clearLoops();
             return;
         }
+        if (!FullfudClientConfig.CLIENT.droneAudioRemoteEnabled.get()) {
+            clearLoops();
+            return;
+        }
         cleanupStoppedLoops();
-        if (packet.droneId() != null && isDroneEntityPresent(mc, packet.droneId())) {
+        if (shouldMuteForLoadedEntity(mc, packet.droneType(), packet.droneId())) {
             stopLoop(packet.droneId());
             return;
         }
@@ -85,7 +97,9 @@ public final class DroneAudioClientHandler {
         if (event == null) {
             return;
         }
-        mc.level.playLocalSound(packet.x(), packet.y(), packet.z(), event, SoundSource.NEUTRAL, packet.volume(), packet.pitch(), false);
+        final double volumeScale = FullfudClientConfig.CLIENT.droneAudioRemoteVolumeScale.get();
+        final float scaledVolume = (float) Mth.clamp(packet.volume() * volumeScale, 0.0D, 10.0D);
+        mc.level.playLocalSound(packet.x(), packet.y(), packet.z(), event, SoundSource.NEUTRAL, scaledVolume, packet.pitch(), false);
     }
 
     private static SoundEvent resolveOneShot(final byte droneType, final byte kind) {
@@ -120,6 +134,18 @@ public final class DroneAudioClientHandler {
             return (entity instanceof FpvDroneEntity) || (entity instanceof ShahedDroneEntity);
         }
         return false;
+    }
+
+    private static boolean shouldMuteForLoadedEntity(final Minecraft mc, final byte droneType, final UUID droneId) {
+        if (droneId == null) {
+            return false;
+        }
+        final boolean muteWhenLoaded = switch (droneType) {
+            case TYPE_FPV -> FullfudClientConfig.CLIENT.droneAudioMuteRemoteFpvWhenLoaded.get();
+            case TYPE_SHAHED -> FullfudClientConfig.CLIENT.droneAudioMuteRemoteShahedWhenLoaded.get();
+            default -> false;
+        };
+        return muteWhenLoaded && isDroneEntityPresent(mc, droneId);
     }
 
     private static void stopLoop(final UUID droneId) {

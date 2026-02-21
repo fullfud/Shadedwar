@@ -1,5 +1,6 @@
 package com.fullfud.fullfud.client.sound;
 
+import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
@@ -11,8 +12,6 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 
 @OnlyIn(Dist.CLIENT)
 public final class RemoteDroneLoopSoundInstance extends AbstractTickableSoundInstance {
-    private static final long TIMEOUT_TICKS = 40;
-
     private long lastUpdateTick = -1;
     private float targetVolume = 0.0F;
     private float targetPitch = 1.0F;
@@ -48,13 +47,17 @@ public final class RemoteDroneLoopSoundInstance extends AbstractTickableSoundIns
             return;
         }
         final long now = mc.level.getGameTime();
-        if (lastUpdateTick >= 0 && now - lastUpdateTick > TIMEOUT_TICKS) {
+        final int timeoutTicks = Math.max(1, FullfudClientConfig.CLIENT.droneAudioLoopTimeoutTicks.get());
+        if (lastUpdateTick >= 0 && now - lastUpdateTick > timeoutTicks) {
             stop();
             return;
         }
-        this.volume = Mth.lerp(0.35F, this.volume, targetVolume);
-        this.pitch = Mth.lerp(0.25F, this.pitch, targetPitch);
-        if (this.volume < 0.001F && targetVolume <= 0.0F) {
+        final float volumeLerp = (float) Mth.clamp(FullfudClientConfig.CLIENT.droneAudioLoopVolumeLerp.get(), 0.0D, 1.0D);
+        final float pitchLerp = (float) Mth.clamp(FullfudClientConfig.CLIENT.droneAudioLoopPitchLerp.get(), 0.0D, 1.0D);
+        this.volume = Mth.lerp(volumeLerp, this.volume, targetVolume);
+        this.pitch = Mth.lerp(pitchLerp, this.pitch, targetPitch);
+        final float stopVolumeEpsilon = (float) Mth.clamp(FullfudClientConfig.CLIENT.droneAudioStopVolumeEpsilon.get(), 0.0D, 1.0D);
+        if (this.volume < stopVolumeEpsilon && targetVolume <= 0.0F) {
             stop();
         }
     }
