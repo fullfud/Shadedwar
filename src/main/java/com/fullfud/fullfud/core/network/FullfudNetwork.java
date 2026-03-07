@@ -5,7 +5,6 @@ import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
-import com.fullfud.fullfud.core.network.packet.RemoteAvatarVisibilityPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedControlPacket;
 import com.fullfud.fullfud.core.network.packet.ShahedGhostUpdatePacket;
 import com.fullfud.fullfud.core.network.packet.ShahedLinkPacket;
@@ -51,7 +50,6 @@ public final class FullfudNetwork {
         channel.registerMessage(nextId(), ShahedLinkPacket.class, ShahedLinkPacket::encode, ShahedLinkPacket::decode, ShahedLinkPacket::handle);
         channel.registerMessage(nextId(), FpvControlPacket.class, FpvControlPacket::encode, FpvControlPacket::decode, FpvControlPacket::handle);
         channel.registerMessage(nextId(), FpvReleasePacket.class, FpvReleasePacket::encode, FpvReleasePacket::decode, FpvReleasePacket::handle);
-        channel.registerMessage(nextId(), RemoteAvatarVisibilityPacket.class, RemoteAvatarVisibilityPacket::encode, RemoteAvatarVisibilityPacket::decode, RemoteAvatarVisibilityPacket::handle);
         channel.registerMessage(nextId(), DroneAudioLoopPacket.class, DroneAudioLoopPacket::encode, DroneAudioLoopPacket::decode, DroneAudioLoopPacket::handle);
         channel.registerMessage(nextId(), DroneAudioOneShotPacket.class, DroneAudioOneShotPacket::encode, DroneAudioOneShotPacket::decode, DroneAudioOneShotPacket::handle);
     }

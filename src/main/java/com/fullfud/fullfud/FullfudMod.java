@@ -1,8 +1,8 @@
 package com.fullfud.fullfud;
 
 import com.fullfud.fullfud.client.FpvClientHandler;
-import com.fullfud.fullfud.client.RemoteAvatarClientHandler;
 import com.fullfud.fullfud.client.ShahedClientHandler; 
+import com.fullfud.fullfud.common.entity.PlayerDecoyEntity;
 import com.fullfud.fullfud.core.FullfudCreativeTabs;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.config.FullfudClientConfig;
@@ -17,6 +17,7 @@ import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.event.entity.EntityAttributeCreationEvent;
 import software.bernie.geckolib.GeckoLib;
 
 @Mod(FullfudMod.MOD_ID)
@@ -34,6 +35,7 @@ public class FullfudMod {
         FullfudCreativeTabs.register(modEventBus);
 
         modEventBus.addListener(this::onCommonSetup);
+        modEventBus.addListener(this::onEntityAttributes);
 
         DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> {
             modEventBus.addListener(this::onClientSetup);
@@ -52,6 +54,9 @@ public class FullfudMod {
     private void onClientSetup(final FMLClientSetupEvent event) {
         FpvClientHandler.onClientSetup(event);
         ShahedClientHandler.onClientSetup(event);
-        RemoteAvatarClientHandler.onClientSetup(event);
+    }
+
+    private void onEntityAttributes(final EntityAttributeCreationEvent event) {
+        event.put(FullfudRegistries.PLAYER_DECOY_ENTITY.get(), PlayerDecoyEntity.createAttributes().build());
     }
 }

@@ -2,6 +2,7 @@ package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.FullfudMod;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
+import com.fullfud.fullfud.common.entity.PlayerDecoyEntity;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedColor;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
@@ -106,6 +107,15 @@ public final class FullfudRegistries {
             .updateInterval(1)
             .setShouldReceiveVelocityUpdates(true)
             .build(resource("fpv_drone").toString())
+    );
+
+    public static final RegistryObject<EntityType<PlayerDecoyEntity>> PLAYER_DECOY_ENTITY = ENTITY_TYPES.register("player_decoy", () ->
+        EntityType.Builder.<PlayerDecoyEntity>of(PlayerDecoyEntity::new, MobCategory.MISC)
+            .sized(0.6F, 1.8F)
+            .clientTrackingRange(128)
+            .updateInterval(2)
+            .setShouldReceiveVelocityUpdates(true)
+            .build(resource("player_decoy").toString())
     );
 
     public static final RegistryObject<EntityType<ShahedLauncherEntity>> SHAHED_LAUNCHER_ENTITY = ENTITY_TYPES.register("shahed_launcher", () ->

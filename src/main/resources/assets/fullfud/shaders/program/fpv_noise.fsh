@@ -41,8 +41,8 @@ void main() {
     if (signalLoss > 0.0) {
         float heavyStatic = rand(vec2(Time * 100.0, distortedUV.y * 432.0 + distortedUV.x));
         vec3 staticColor = vec3(heavyStatic);
-        
-        col.rgb = mix(col.rgb, staticColor, signalLoss);
+        float staticMix = signalLoss * 0.75;
+        col.rgb = mix(col.rgb, staticColor, staticMix);
     }
 
     vec2 screenFragCoord = uv * InSize;

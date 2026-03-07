@@ -93,8 +93,8 @@ public final class FullfudClientConfig {
             builder.push("controller");
 
             fpvControllerEnabled = builder
-                .comment("Enable joystick/gamepad input for FPV drone control.")
-                .define("enabled", true);
+                .comment("Enable joystick/gamepad input for FPV drone control. Keep disabled if you use only keyboard and mouse.")
+                .define("enabled", false);
 
             fpvControllerPreferGamepadMapping = builder
                 .comment("If the device is recognized as a GLFW 'gamepad', use standard gamepad mapping; otherwise use raw joystick axes mapping.")
@@ -114,7 +114,7 @@ public final class FullfudClientConfig {
 
             fpvControllerGamepadThrottleMode = builder
                 .comment("Gamepad throttle source. LEFT_STICK_Y mimics FPV Mode 2; RIGHT_TRIGGER mimics common game controls.")
-                .defineEnum("gamepadThrottleMode", GamepadThrottleMode.LEFT_STICK_Y);
+                .defineEnum("gamepadThrottleMode", GamepadThrottleMode.RIGHT_TRIGGER);
 
             builder.pop();
             builder.push("rawMapping");

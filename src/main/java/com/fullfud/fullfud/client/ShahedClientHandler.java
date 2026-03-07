@@ -39,6 +39,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.EntityHitResult;
@@ -48,9 +49,13 @@ import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.EntityRenderersEvent;
 import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
 import net.minecraftforge.client.event.RenderGuiEvent;
+import net.minecraftforge.client.event.RenderHandEvent;
+import net.minecraftforge.client.event.RenderLivingEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.minecraftforge.client.event.RenderPlayerEvent;
 import net.minecraftforge.client.event.ViewportEvent;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.PlayLevelSoundEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
@@ -83,6 +88,9 @@ public final class ShahedClientHandler {
     private static final Map<UUID, EngineAudioController> ENGINE_AUDIO = new HashMap<>();
     private static final Map<UUID, GhostState> GHOST_STATES = new HashMap<>();
     private static final Map<UUID, ShahedDroneEntity> GHOST_ENTITIES = new HashMap<>();
+    private static boolean localPlayerStateCaptured;
+    private static boolean localPlayerInvisible;
+    private static boolean localPlayerSilent;
 
     private ShahedClientHandler() {
     }
@@ -99,6 +107,10 @@ public final class ShahedClientHandler {
             MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderLevelStage);
             MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderGui);
             MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onComputeCameraAngles);
+            MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderHand);
+            MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderLiving);
+            MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onRenderPlayer);
+            MinecraftForge.EVENT_BUS.addListener(ShahedClientHandler::onPlayLevelSoundAtEntity);
         });
     }
 
@@ -198,12 +210,18 @@ public final class ShahedClientHandler {
             return;
         }
         if (minecraft.level == null || minecraft.isPaused()) {
+            restoreLocalPlayerState();
             ENGINE_AUDIO.values().forEach(EngineAudioController::stop);
             ENGINE_AUDIO.clear();
             if (minecraft.level == null) {
                 clearGhostState();
             }
             return;
+        }
+        if (isOwnerShahedSessionActive(minecraft)) {
+            stabilizeLocalPlayer(minecraft.player);
+        } else {
+            restoreLocalPlayerState();
         }
         if (!FullfudClientConfig.CLIENT.shahedUseLocalEntityAudio.get()) {
             ENGINE_AUDIO.values().forEach(EngineAudioController::stop);
@@ -623,9 +641,122 @@ public final class ShahedClientHandler {
         graphics.drawString(font, chargeText, x + padding, y + padding + font.lineHeight + spacing, 0xFFB0B0B0, false);
     }
 
+    private static void onRenderHand(final RenderHandEvent event) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null) {
+            return;
+        }
+        if (!isOwnerShahedSessionActive(minecraft)) {
+            return;
+        }
+        event.setCanceled(true);
+    }
+
+    private static void onRenderLiving(final RenderLivingEvent.Pre<?, ?> event) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null || event == null || event.getEntity() == null) {
+            return;
+        }
+        if (!isLocalOwnerEntity(minecraft, event.getEntity())) {
+            return;
+        }
+        if (!isOwnerShahedSessionActive(minecraft)) {
+            return;
+        }
+        event.setCanceled(true);
+    }
+
+    private static void onRenderPlayer(final RenderPlayerEvent.Pre event) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null || event == null || event.getEntity() == null) {
+            return;
+        }
+        if (!isLocalOwnerEntity(minecraft, event.getEntity())) {
+            return;
+        }
+        if (!isOwnerShahedSessionActive(minecraft)) {
+            return;
+        }
+        event.setCanceled(true);
+    }
+
+    private static void onPlayLevelSoundAtEntity(final PlayLevelSoundEvent.AtEntity event) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null || event == null || event.getEntity() == null) {
+            return;
+        }
+        if (!isLocalOwnerEntity(minecraft, event.getEntity())) {
+            return;
+        }
+        if (!isOwnerShahedSessionActive(minecraft)) {
+            return;
+        }
+        event.setCanceled(true);
+    }
+
     private static boolean isHoldingBattery(final Player player) {
         return player.getMainHandItem().is(FullfudRegistries.REB_BATTERY_ITEM.get()) ||
             player.getOffhandItem().is(FullfudRegistries.REB_BATTERY_ITEM.get());
+    }
+
+    private static boolean isOwnerShahedSessionActive(final Minecraft minecraft) {
+        if (minecraft == null || minecraft.player == null) {
+            return false;
+        }
+        if (minecraft.getCameraEntity() instanceof ShahedDroneEntity drone) {
+            return !drone.isRemoved() && drone.isAlive();
+        }
+        return minecraft.screen instanceof ShahedMonitorScreen;
+    }
+
+    private static boolean isLocalOwnerEntity(final Minecraft minecraft, final Entity entity) {
+        return minecraft != null
+            && minecraft.player != null
+            && entity != null
+            && minecraft.player.getUUID().equals(entity.getUUID());
+    }
+
+    private static void stabilizeLocalPlayer(final net.minecraft.client.player.LocalPlayer player) {
+        if (player == null) {
+            return;
+        }
+        suppressOwnerEntityCopies(player);
+        if (!localPlayerStateCaptured) {
+            localPlayerInvisible = player.isInvisible();
+            localPlayerSilent = player.isSilent();
+            localPlayerStateCaptured = true;
+        }
+        player.setInvisible(true);
+        player.setSilent(true);
+    }
+
+    private static void suppressOwnerEntityCopies(final net.minecraft.client.player.LocalPlayer player) {
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.level == null || player == null) {
+            return;
+        }
+        final UUID ownerId = player.getUUID();
+        for (final Entity entity : minecraft.level.entitiesForRendering()) {
+            if (entity == null || entity == player || !ownerId.equals(entity.getUUID())) {
+                continue;
+            }
+            entity.setInvisible(true);
+            entity.setSilent(true);
+        }
+    }
+
+    private static void restoreLocalPlayerState() {
+        if (!localPlayerStateCaptured) {
+            return;
+        }
+        final Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft == null || minecraft.player == null) {
+            localPlayerStateCaptured = false;
+            return;
+        }
+        minecraft.player.setInvisible(localPlayerInvisible);
+        minecraft.player.setSilent(localPlayerSilent);
+        localPlayerStateCaptured = false;
     }
 
     private static Component resolveEmitterStatus(final RebEmitterEntity emitter) {

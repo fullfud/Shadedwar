@@ -104,15 +104,9 @@ repositories {
     }
 }
 
-def latticeVersion = "3.0.0"
-def latticeDevJar = files("lattice/build/libs/lattice-${latticeVersion}.jar")
-def latticeReobfJar = files("lattice/build/reobfJar/output.jar")
-
 dependencies {
     minecraft "net.minecraftforge:forge:1.20.1-47.1.0"
     implementation fg.deobf("software.bernie.geckolib:geckolib-forge-1.20.1:4.3.1")
-    compileOnly latticeDevJar
-    runtimeOnly latticeDevJar
 }
 
 sourceSets {
@@ -126,13 +120,8 @@ tasks.withType(JavaCompile).configureEach {
     options.release = 17
 }
 
-tasks.named("compileJava") {
-    dependsOn(":lattice:jar")
-}
-
 jar {
     archiveVersion.set(providers.provider { project.version.toString() })
-    dependsOn(":lattice:reobfJar")
     manifest {
         attributes([
             "Specification-Title": "shadedwar",
@@ -142,10 +131,6 @@ jar {
             "Implementation-Version": "${-> project.version}",
             "Implementation-Vendor": "fullfud"
         ])
-    }
-    from(latticeReobfJar) {
-        into "META-INF/jarjar"
-        rename { "lattice-${latticeVersion}.jar" }
     }
 }
 
@@ -173,7 +158,7 @@ tasks.register("syncCleanResources", Copy) {
 tasks.register("jarClean", Jar) {
     archiveVersion.set(providers.provider { project.version.toString() })
     archiveClassifier.set("clean")
-    dependsOn("classes", ":lattice:reobfJar")
+    dependsOn("classes")
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
         attributes([
@@ -189,10 +174,6 @@ tasks.register("jarClean", Jar) {
         from(cleanResourcesDir)
     }
     from(sourceSets.main.output)
-    from(latticeReobfJar) {
-        into "META-INF/jarjar"
-        rename { "lattice-${latticeVersion}.jar" }
-    }
 }
 
 reobf {
