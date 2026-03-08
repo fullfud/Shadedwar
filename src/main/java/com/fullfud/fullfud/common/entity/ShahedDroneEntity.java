@@ -1020,7 +1020,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return false;
         }
         if (controlSession == null) {
-            controlSession = new ControlSession(sender.level().dimension(), sender.position(), sender.getYRot(), sender.getXRot(), sender.gameMode.getGameModeForPlayer());
+            return false;
         }
         writeRemoteTag(sender);
         return true;

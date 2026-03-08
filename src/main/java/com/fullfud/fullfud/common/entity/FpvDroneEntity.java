@@ -1326,7 +1326,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return false;
         }
         if (session == null) {
-            session = new ControlSession(sender.level().dimension(), sender.position(), sender.getYRot(), sender.getXRot(), sender.gameMode.getGameModeForPlayer());
+            return false;
         }
         writeRemoteTag(sender);
         return true;
