@@ -1,12 +1,14 @@
 package com.fullfud.fullfud.common.entity;
 
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.PlayerDecoyManager;
 import com.mojang.authlib.GameProfile;
 import com.mojang.authlib.properties.Property;
 import io.netty.buffer.Unpooled;
 import net.minecraft.core.NonNullList;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
@@ -138,6 +140,10 @@ public class PlayerDecoyEntity extends LivingEntity {
         final ServerLevel serverLevel = (ServerLevel) this.level();
         final ServerPlayer owner = getOwnerPlayer(serverLevel);
         if (owner == null || owner.isRemoved()) {
+            this.discard();
+            return;
+        }
+        if (!isOwnerRemoteActive(owner)) {
             this.discard();
             return;
         }
@@ -440,6 +446,7 @@ public class PlayerDecoyEntity extends LivingEntity {
 
     @Override
     public void remove(final @NotNull RemovalReason reason) {
+        PlayerDecoyManager.unregisterDecoy(this.ownerUUID, this.getUUID());
         if (!this.level().isClientSide() && this.cachedProfile != null) {
             final ServerLevel level = (ServerLevel) this.level();
             for (final ServerPlayer player : level.players()) {
@@ -447,5 +454,14 @@ public class PlayerDecoyEntity extends LivingEntity {
             }
         }
         super.remove(reason);
+    }
+
+    private static boolean isOwnerRemoteActive(final ServerPlayer owner) {
+        if (owner == null) {
+            return false;
+        }
+        final CompoundTag root = owner.getPersistentData();
+        return root.contains(FpvDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)
+            || root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND);
     }
 }

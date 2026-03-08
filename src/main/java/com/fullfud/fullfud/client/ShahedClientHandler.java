@@ -691,6 +691,9 @@ public final class ShahedClientHandler {
         if (!isOwnerShahedSessionActive(minecraft)) {
             return;
         }
+        if (event.getSource() != SoundSource.PLAYERS) {
+            return;
+        }
         event.setCanceled(true);
     }
 

@@ -25,6 +25,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Entity;
@@ -802,6 +803,9 @@ public final class FpvClientHandler {
             return;
         }
         if (!isOwnerFpvSessionActive(minecraft)) {
+            return;
+        }
+        if (event.getSource() != SoundSource.PLAYERS) {
             return;
         }
         event.setCanceled(true);

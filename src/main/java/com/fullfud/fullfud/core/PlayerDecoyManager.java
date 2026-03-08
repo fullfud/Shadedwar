@@ -64,6 +64,13 @@ public final class PlayerDecoyManager {
         }
     }
 
+    public static void unregisterDecoy(final UUID playerUUID, final UUID decoyEntityId) {
+        if (playerUUID == null || decoyEntityId == null) {
+            return;
+        }
+        ACTIVE_DECOYS.computeIfPresent(playerUUID, (ignored, data) -> data.decoyEntityId.equals(decoyEntityId) ? null : data);
+    }
+
     public static boolean hasDecoy(final UUID playerUUID) {
         return ACTIVE_DECOYS.containsKey(playerUUID);
     }
