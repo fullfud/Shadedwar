@@ -1,6 +1,7 @@
 package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.FullfudMod;
+import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.menu.ShahedMonitorMenu;
 import net.minecraft.nbt.CompoundTag;
@@ -32,6 +33,16 @@ public final class RemoteControlFailsafe {
         }
         final CompoundTag root = player.getPersistentData();
 
+        if (root.contains(FpvDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
+            final CompoundTag tag = root.getCompound(FpvDroneEntity.PLAYER_REMOTE_TAG);
+            if (FpvDroneEntity.isRemoteControlActive(player.getServer(), player.getUUID(), tag)) {
+                forceChunkTracking(player);
+            } else {
+                FpvDroneEntity.forceRestoreFromPersistentData(player, tag);
+                root.remove(FpvDroneEntity.PLAYER_REMOTE_TAG);
+            }
+        }
+
         if (root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG);
             final boolean active = player.containerMenu instanceof ShahedMonitorMenu;
@@ -50,6 +61,10 @@ public final class RemoteControlFailsafe {
             return;
         }
         final CompoundTag root = player.getPersistentData();
+        if (root.contains(FpvDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
+            final CompoundTag tag = root.getCompound(FpvDroneEntity.PLAYER_REMOTE_TAG);
+            FpvDroneEntity.forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
+        }
         if (root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG);
             ShahedDroneEntity.forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);

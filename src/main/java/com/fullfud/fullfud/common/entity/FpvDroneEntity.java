@@ -123,6 +123,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final int MAX_BATTERY_TICKS = 12000;
     
     private static final int FPV_CHUNK_RADIUS = 3;
+    private static final int CONTROL_TIMEOUT_TICKS = 40;
     private static final int SIGNAL_CALC_INTERVAL_TICKS = 2;
     private static final int MAX_OCCLUSION_STEPS = 256;
     
@@ -172,6 +173,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private FpvControlPacket queuedControl;
     private UUID queuedControllerId;
+    private int controlTimeoutTicks;
     // Optional mode: keep drone chunks loaded even without a controlling player.
     private boolean keepChunksLoadedWithoutPlayer;
 
@@ -288,6 +290,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
         if (tag.hasUUID(TAG_CONTROLLER)) {
             entityData.set(DATA_CONTROLLER, Optional.of(tag.getUUID(TAG_CONTROLLER)));
+            controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
         }
         keepChunksLoadedWithoutPlayer = tag.getBoolean(TAG_KEEP_CHUNKS);
         if (tag.contains(TAG_SIGNAL_RANGE_SCALE, Tag.TAG_DOUBLE) || tag.contains(TAG_SIGNAL_PENETRATION_SCALE, Tag.TAG_DOUBLE)) {
@@ -384,19 +387,21 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (entityData.get(DATA_CONTROLLER).isPresent()) {
             ServerPlayer controller = getController();
             if (controller == null) {
-                final UUID controllerId = entityData.get(DATA_CONTROLLER).orElse(null);
-                entityData.set(DATA_CONTROLLER, Optional.empty());
-                setArmed(false);
-                if (controllerId != null) {
-                    PlayerDecoyManager.removeDecoy(controllerId);
-                }
+                endRemoteControl(null);
             } else {
-                if (queuedControl != null && controller.getUUID().equals(queuedControllerId)) {
+                if (controlTimeoutTicks > 0) {
+                    controlTimeoutTicks--;
+                } else {
+                    endRemoteControl(controller);
+                    controller = null;
+                }
+
+                if (controller != null && queuedControl != null && controller.getUUID().equals(queuedControllerId)) {
                     applyControl(queuedControl, controller);
                     queuedControl = null;
                     queuedControllerId = null;
                 }
-                if ((tickCount % SIGNAL_CALC_INTERVAL_TICKS) == 0 || tickCount <= 5) {
+                if (controller != null && ((tickCount % SIGNAL_CALC_INTERVAL_TICKS) == 0 || tickCount <= 5)) {
                     calculateSignal(controller);
                 }
             }
@@ -858,6 +863,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             if (controller != null) {
                 forceReturnCamera(controller);
                 endRemoteControl(controller);
+            } else if (entityData.get(DATA_CONTROLLER).isPresent() || session != null) {
+                endRemoteControl(null);
             } else {
                 PlayerDecoyManager.removeDecoyByDrone(getUUID());
             }
@@ -874,6 +881,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         final ServerPlayer controller = getController();
         if (controller != null) {
             endRemoteControl(controller);
+        } else if (entityData.get(DATA_CONTROLLER).isPresent() || session != null) {
+            endRemoteControl(null);
         } else {
             PlayerDecoyManager.removeDecoyByDrone(getUUID());
         }
@@ -917,6 +926,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!isRemoteStateValidFor(sender)) {
             return;
         }
+
+        controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
         
         if (getSignalQuality() < 0.05F) {
             inputPitch = 0.0F;
@@ -1012,6 +1023,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return false;
         }
         entityData.set(DATA_CONTROLLER, Optional.of(player.getUUID()));
+        controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
         session = new ControlSession(player.level().dimension(), player.position(), player.getYRot(), player.getXRot(), player.gameMode.getGameModeForPlayer());
         writeRemoteTag(player);
         PlayerDecoyManager.createDecoy(player, this);
@@ -1062,6 +1074,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         inputYaw = 0;
         targetThrottle = 0;
         throttleOutput = 0;
+        queuedControl = null;
+        queuedControllerId = null;
+        controlTimeoutTicks = 0;
         setArmed(false);
         
         session = null;
@@ -1286,6 +1301,20 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
 
         restorePlayerFromRemoteTag(player, tag);
+    }
+
+    public static boolean isRemoteControlActive(final MinecraftServer server, final UUID playerId, final CompoundTag tag) {
+        if (server == null || playerId == null || tag == null || !tag.hasUUID(PLAYER_TAG_DRONE)) {
+            return false;
+        }
+        final UUID droneId = tag.getUUID(PLAYER_TAG_DRONE);
+        for (final ServerLevel level : server.getAllLevels()) {
+            final Entity entity = level.getEntity(droneId);
+            if (entity instanceof FpvDroneEntity drone) {
+                return playerId.equals(drone.getControllerId()) && drone.session != null;
+            }
+        }
+        return false;
     }
 
     private ServerPlayer getController() {
