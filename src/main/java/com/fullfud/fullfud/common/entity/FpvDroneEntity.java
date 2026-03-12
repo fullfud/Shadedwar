@@ -1,5 +1,7 @@
 package com.fullfud.fullfud.common.entity;
 
+import com.fullfud.fullfud.common.entity.drone.DronePhysics;
+import com.fullfud.fullfud.common.entity.drone.DronePreset;
 import com.fullfud.fullfud.common.item.FpvControllerItem;
 import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.mojang.datafixers.util.Pair;
@@ -101,24 +103,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final RawAnimation IDLE_ANIM = RawAnimation.begin().thenLoop("idle");
     private static final RawAnimation RUNNING_ANIM = RawAnimation.begin().thenLoop("running");
     
-    private static final double GRAVITY = 0.055D;
-    private static final double AIR_DRAG = 0.96D; 
-    private static final double DISARM_GRAVITY_MULT = 1.6D;
-    private static final double DISARM_AIR_DRAG = 0.98D;
-    private static final double LOW_THRUST_GRAVITY_MULT = 1.35D;
-    private static final double LOW_THRUST_AIR_DRAG = 0.975D;
-    private static final float LOW_THRUST_THRESHOLD = 0.05F;
-    private static final double MAX_THRUST = 0.12D;
-    private static final double ROTATION_RATE_DEG = 5.0D;
-    private static final double YAW_RATE_DEG = 4.0D;
     private static final float YAW_SINGULARITY_PITCH_DEG = 89.0F;
     private static final double YAW_SINGULARITY_HORIZ_EPS = 1.0E-3D;
 
     private static final double TICK_SECONDS = 1.0D / 20.0D;
-    private static final double GRAVITY_ACCEL = GRAVITY * 400.0D; // blocks/sec^2 (from blocks/tick^2)
-    private static final double MAX_THRUST_ACCEL = MAX_THRUST * 400.0D; // blocks/sec^2 (from blocks/tick^2)
-    private static final double MAX_LINEAR_SPEED = 60.0D; // blocks/sec (prevents runaway at low drag)
-    private static final double ANGULAR_ACCEL_DEG_PER_SEC2 = 900.0D;
     
     private static final int MAX_BATTERY_TICKS = 12000;
     
@@ -145,19 +133,25 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_KEEP_CHUNKS = "KeepChunks";
     private static final String TAG_SIGNAL_RANGE_SCALE = "SignalRangeScale";
     private static final String TAG_SIGNAL_PENETRATION_SCALE = "SignalPenetrationScale";
+    private static final String TAG_PRESET = "Preset";
 
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
     private final Quaternionf qRotation = new Quaternionf();
     private final Quaternionf qRotationO = new Quaternionf();
-    
+
     private boolean physicsInitialized = false;
-    
+
+    private DronePreset dronePreset = DronePreset.STANDARD_5INCH;
+    private final DronePhysics dronePhysics = new DronePhysics();
+
     private float targetThrottle;
     private float throttleOutput;
     
     private float inputPitch;
     private float inputRoll;
     private float inputYaw;
+    private float inputMousePitchDelta;
+    private float inputMouseRollDelta;
 
     private double droneRoll;
     private double droneRollO;
@@ -215,6 +209,16 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.noPhysics = false;
         this.setNoGravity(true);
         this.refreshDimensions();
+        this.dronePhysics.applyPreset(this.dronePreset);
+    }
+
+    public void setDronePreset(DronePreset preset) {
+        this.dronePreset = preset;
+        this.dronePhysics.applyPreset(preset);
+    }
+
+    public DronePreset getDronePreset() {
+        return this.dronePreset;
     }
 
     @Override
@@ -264,6 +268,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     @Override
     protected void readAdditionalSaveData(final CompoundTag tag) {
+        if (tag.contains(TAG_PRESET)) {
+            setDronePreset(DronePreset.fromOrdinal(tag.getInt(TAG_PRESET)));
+        }
         setArmed(tag.getBoolean(TAG_ARMED));
         targetThrottle = tag.getFloat(TAG_THRUST);
         throttleOutput = targetThrottle;
@@ -319,6 +326,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     @Override
     protected void addAdditionalSaveData(final CompoundTag tag) {
+        tag.putInt(TAG_PRESET, dronePreset.ordinal());
         tag.putBoolean(TAG_ARMED, isArmed());
         tag.putFloat(TAG_THRUST, targetThrottle);
         tag.putDouble(TAG_ROLL, droneRoll);
@@ -382,6 +390,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             inputPitch = 0.0F;
             inputRoll = 0.0F;
             inputYaw = 0.0F;
+            inputMousePitchDelta = 0.0F;
+            inputMouseRollDelta = 0.0F;
         }
 
         if (entityData.get(DATA_CONTROLLER).isPresent()) {
@@ -424,16 +434,22 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         
         Vec3 preMoveVelocity = getDeltaMovement();
         move(MoverType.SELF, preMoveVelocity);
-        
+
         if (isArmed()) {
             if (horizontalCollision || verticalCollision) {
-                double hSpeed = Math.sqrt(preMoveVelocity.x * preMoveVelocity.x + preMoveVelocity.z * preMoveVelocity.z);
-                double limit = 0.5D; 
-                
-                if (hSpeed > limit) {
+                double speed = linearVelocity.length();
+                double crashThreshold = 10.0D; // blocks/sec — above this, drone explodes
+
+                if (speed > crashThreshold) {
                     explode();
                     return;
                 }
+
+                // Bounce via physics engine
+                Vec3 actualMovement = getDeltaMovement();
+                Vec3 newVel = dronePhysics.handleCollision(preMoveVelocity, actualMovement);
+                linearVelocity = newVel;
+                dronePhysics.setVelocity(newVel);
             }
             List<Entity> collisions = level().getEntities(this, getBoundingBox().inflate(0.2D), e -> !e.isSpectator() && e.isPickable());
             for (Entity entity : collisions) {
@@ -446,10 +462,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
 
         if (onGround()) {
-            setDeltaMovement(getDeltaMovement().multiply(0.5D, 0.5D, 0.5D));
+            linearVelocity = linearVelocity.multiply(0.5D, 0.5D, 0.5D);
+            dronePhysics.setVelocity(linearVelocity);
         }
-
-        linearVelocity = getDeltaMovement().scale(20.0D);
         
         throttleOutput = targetThrottle;
         entityData.set(DATA_THRUST, throttleOutput);
@@ -671,49 +686,58 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private void updateSimplePhysics() {
-        final double dt = TICK_SECONDS;
-        float pInputCurve = applyExpo(inputPitch, 0.4F);
-        float rInputCurve = applyExpo(inputRoll, 0.4F);
-        float yInputCurve = applyExpo(inputYaw, 0.4F);
+        final float dt = (float) TICK_SECONDS;
 
-        final float pitchTargetRadPerSec = (float) Math.toRadians(-pInputCurve * ROTATION_RATE_DEG * 20.0D);
-        final float rollTargetRadPerSec = (float) Math.toRadians(-rInputCurve * ROTATION_RATE_DEG * 20.0D);
-        final float yawTargetRadPerSec = (float) Math.toRadians(-yInputCurve * YAW_RATE_DEG * 20.0D);
-        
-        if (!isArmed()) {
-            pitchRateRadPerSec = 0.0F;
-            rollRateRadPerSec = 0.0F;
-            yawRateRadPerSec = 0.0F;
-        }
+        final boolean freeFall = getBatteryTicks() <= 0 || !isArmed();
 
-        final float maxDelta = (float) (Math.toRadians(ANGULAR_ACCEL_DEG_PER_SEC2) * dt);
-        pitchRateRadPerSec = approach(pitchRateRadPerSec, Float.isFinite(pitchTargetRadPerSec) ? pitchTargetRadPerSec : 0.0F, maxDelta);
-        rollRateRadPerSec = approach(rollRateRadPerSec, Float.isFinite(rollTargetRadPerSec) ? rollTargetRadPerSec : 0.0F, maxDelta);
-        yawRateRadPerSec = approach(yawRateRadPerSec, Float.isFinite(yawTargetRadPerSec) ? yawTargetRadPerSec : 0.0F, maxDelta);
+        float throttle = freeFall ? 0.0F : throttleOutput;
+        float pInput = freeFall ? 0.0F : inputPitch;
+        float rInput = freeFall ? 0.0F : inputRoll;
+        float yInput = freeFall ? 0.0F : inputYaw;
+        float mousePitchDelta = freeFall ? 0.0F : inputMousePitchDelta;
+        float mouseRollDelta = freeFall ? 0.0F : inputMouseRollDelta;
 
-        final float yRad = (float) (yawRateRadPerSec * dt);
-        final float pRad = (float) (pitchRateRadPerSec * dt);
-        final float rRad = (float) (rollRateRadPerSec * dt);
+        // Sync current velocity into physics engine
+        dronePhysics.setVelocity(linearVelocity);
+        dronePhysics.setOrientation(qRotation);
 
-        final Quaternionf delta = new Quaternionf()
-            .rotateY(yRad)
-            .rotateX(pRad)
-            .rotateZ(rRad);
+        // Run RK4 physics simulation
+        Vec3 displacement = dronePhysics.simulate(
+            dt,
+            throttle,
+            rInput,
+            pInput,
+            yInput,
+            mousePitchDelta,
+            mouseRollDelta,
+            getDronePreset().flightMode3d
+        );
+        inputMousePitchDelta = 0.0F;
+        inputMouseRollDelta = 0.0F;
 
-        qRotation.mul(delta);
+        // Read back state from physics engine
+        Quaternionf physQ = dronePhysics.getOrientation();
+        qRotation.set(physQ);
         qRotation.normalize();
 
-        final Vector3f euler = new Vector3f();
-        qRotation.getEulerAnglesYXZ(euler);
+        Vector3f physVel = dronePhysics.getVelocity();
+        linearVelocity = new Vec3(physVel.x, physVel.y, physVel.z);
 
-        final Vector3f forward = new Vector3f(0.0F, 0.0F, 1.0F);
-        qRotation.transform(forward);
+        final Vector3f forward = dronePhysics.getForward();
+        final Vector3f up = dronePhysics.getUp();
         final double horiz = Math.sqrt(forward.x * forward.x + forward.z * forward.z);
 
-        headingYaw = Mth.wrapDegrees(headingYaw + (float) Math.toDegrees(yawRateRadPerSec * dt));
         float newPitch = (float) Math.toDegrees(Math.atan2(-forward.y, horiz));
-        float newRoll = (float) Math.toDegrees(euler.z);
         float newYaw = resolveStableYaw(forward, newPitch);
+        final Quaternionf zeroRoll = new Quaternionf().rotateYXZ(
+            (float) Math.toRadians(-newYaw),
+            (float) Math.toRadians(newPitch),
+            0.0F
+        );
+        final Vector3f zeroRollUp = new Vector3f(0.0F, 1.0F, 0.0F);
+        zeroRoll.transform(zeroRollUp);
+        final Vector3f cross = new Vector3f(zeroRollUp).cross(up);
+        float newRoll = (float) Math.toDegrees(Math.atan2(cross.dot(forward), zeroRollUp.dot(up)));
 
         if (Float.isNaN(newYaw)) newYaw = this.getYRot();
         if (Float.isNaN(newPitch)) newPitch = this.getXRot();
@@ -723,37 +747,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.setXRot(Mth.wrapDegrees(newPitch));
         this.droneRoll = Mth.wrapDegrees(newRoll);
 
-        Vector3f upVec = new Vector3f(0.0F, 1.0F, 0.0F);
-        qRotation.transform(upVec);
-
-        double thrustAccel = throttleOutput * MAX_THRUST_ACCEL;
-         
-        final boolean freeFall = getBatteryTicks() <= 0 || !isArmed();
-        if (freeFall) {
-            thrustAccel = 0;
-        }
-
-        final Vec3 thrustVec = new Vec3(upVec.x, upVec.y, upVec.z).scale(thrustAccel);
-
-        final boolean lowThrustFall = !freeFall && throttleOutput <= LOW_THRUST_THRESHOLD;
-        final double gravityAccel = freeFall
-            ? (GRAVITY_ACCEL * DISARM_GRAVITY_MULT)
-            : (lowThrustFall ? (GRAVITY_ACCEL * LOW_THRUST_GRAVITY_MULT) : GRAVITY_ACCEL);
-        final double drag = freeFall
-            ? DISARM_AIR_DRAG
-            : (lowThrustFall ? LOW_THRUST_AIR_DRAG : AIR_DRAG);
-
-        Vec3 accel = thrustVec.add(0, -gravityAccel, 0);
-
-        linearVelocity = linearVelocity.add(accel.scale(dt));
-        linearVelocity = linearVelocity.scale(drag);
-
-        final double speed = linearVelocity.length();
-        if (speed > MAX_LINEAR_SPEED) {
-            linearVelocity = linearVelocity.scale(MAX_LINEAR_SPEED / speed);
-        }
-
-        setDeltaMovement(linearVelocity.scale(dt));
+        setDeltaMovement(displacement);
     }
 
     private float resolveStableYaw(final Vector3f forward, final float newPitch) {
@@ -764,10 +758,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return headingYaw;
         }
         return headingYaw;
-    }
-
-    private float applyExpo(float input, float expo) {
-        return input * (Math.abs(input) * expo + (1.0F - expo));
     }
 
     private static float approach(final float current, final float target, final float maxDelta) {
@@ -908,14 +898,11 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private Item resolveDropItem() {
-        final double scale = Math.max(getSignalRangeScale(), getSignalPenetrationScale());
-        if (scale >= 3.5D) {
-            return FullfudRegistries.FPV_DRONE_ITEM_X4.get();
-        }
-        if (scale >= 1.5D) {
-            return FullfudRegistries.FPV_DRONE_ITEM_X2.get();
-        }
-        return FullfudRegistries.FPV_DRONE_ITEM.get();
+        return switch (getDronePreset()) {
+            case TINY_WHOOP -> FullfudRegistries.FPV_DRONE_ITEM_X2.get();
+            case STRIKE_7INCH -> FullfudRegistries.FPV_DRONE_ITEM_X4.get();
+            case STANDARD_5INCH -> FullfudRegistries.FPV_DRONE_ITEM.get();
+        };
     }
 
     public void applyControl(final FpvControlPacket packet, final ServerPlayer sender) {
@@ -933,6 +920,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             inputPitch = 0.0F;
             inputRoll = 0.0F;
             inputYaw = 0.0F;
+            inputMousePitchDelta = 0.0F;
+            inputMouseRollDelta = 0.0F;
             targetThrottle = Math.max(0.0F, targetThrottle - 0.08F);
             return;
         }
@@ -944,6 +933,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!Float.isFinite(packet.pitchInput())
             || !Float.isFinite(packet.rollInput())
             || !Float.isFinite(packet.yawInput())
+            || !Float.isFinite(packet.mousePitchDelta())
+            || !Float.isFinite(packet.mouseRollDelta())
             || !Float.isFinite(packet.throttle())) {
             return;
         }
@@ -951,12 +942,16 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         inputPitch = Mth.clamp(packet.pitchInput(), -1.0F, 1.0F);
         inputRoll = Mth.clamp(packet.rollInput(), -1.0F, 1.0F);
         inputYaw = Mth.clamp(packet.yawInput(), -1.0F, 1.0F);
+        inputMousePitchDelta = Mth.clamp(packet.mousePitchDelta(), -0.5F, 0.5F);
+        inputMouseRollDelta = Mth.clamp(packet.mouseRollDelta(), -0.5F, 0.5F);
         targetThrottle = Mth.clamp(packet.throttle(), 0.0F, 1.0F);
         
         if (packet.armAction() == 1) {
             if (getBatteryTicks() > 0) setArmed(true);
         } else if (packet.armAction() == 2) {
             setArmed(false);
+            inputMousePitchDelta = 0.0F;
+            inputMouseRollDelta = 0.0F;
             targetThrottle = 0.0F;
         }
     }
@@ -1072,6 +1067,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         inputPitch = 0;
         inputRoll = 0;
         inputYaw = 0;
+        inputMousePitchDelta = 0;
+        inputMouseRollDelta = 0;
         targetThrottle = 0;
         throttleOutput = 0;
         queuedControl = null;

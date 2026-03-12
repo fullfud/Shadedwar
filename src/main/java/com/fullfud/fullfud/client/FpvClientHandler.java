@@ -2,7 +2,10 @@ package com.fullfud.fullfud.client;
 
 import com.fullfud.fullfud.client.render.FpvDroneRenderer;
 import com.fullfud.fullfud.client.render.PlayerDecoyRenderer;
+import com.fullfud.fullfud.client.input.ControllerCalibration;
+import com.fullfud.fullfud.client.input.ControllerCalibrationStore;
 import com.fullfud.fullfud.client.input.FpvControllerInput;
+import com.fullfud.fullfud.client.screen.ControllerCalibrationScreen;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.config.FullfudClientConfig;
@@ -56,6 +59,7 @@ public final class FpvClientHandler {
     private static final KeyMapping FPV_YAW_LEFT = new KeyMapping("key.fullfud.fpv_yaw_left", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_Q, "key.categories.fullfud");
     private static final KeyMapping FPV_YAW_RIGHT = new KeyMapping("key.fullfud.fpv_yaw_right", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_E, "key.categories.fullfud");
     private static final KeyMapping FPV_ARM = new KeyMapping("key.fullfud.fpv_arm", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.fullfud");
+    private static final KeyMapping FPV_CALIBRATE = new KeyMapping("key.fullfud.fpv_calibrate", InputConstants.Type.KEYSYM, InputConstants.UNKNOWN.getValue(), "key.categories.fullfud");
 
     private static final ResourceLocation FONT_DIGITAL_LOC = new ResourceLocation("fullfud", "digital");
     private static final Style DIGITAL_STYLE = Style.EMPTY.withFont(FONT_DIGITAL_LOC);
@@ -76,9 +80,11 @@ public final class FpvClientHandler {
     private static final ResourceLocation SIGNAL_100 = new ResourceLocation("fullfud", "textures/gui/hud/signal/100.png");
 
     private static final ResourceLocation SHADER_LOC = new ResourceLocation("fullfud", "shaders/post/fpv_post.json");
+    private static final float KEYBOARD_THROTTLE_MAX = 0.70F;
 
     private static UUID activeDrone;
     private static float throttleDemand;
+    private static float throttleDisplayMax = 1.0F;
     private static double speedMs;
     private static double groundSpeedKmh;
     private static boolean escRequested;
@@ -88,8 +94,6 @@ public final class FpvClientHandler {
     private static double lastMouseX;
     private static double lastMouseY;
     private static boolean mouseInitialized = false;
-    private static double mouseAccumX;
-    private static double mouseAccumY;
 
     private static boolean inFpvMode = false;
     private static CameraType previousCameraType;
@@ -104,6 +108,9 @@ public final class FpvClientHandler {
     private static final boolean OPTIFINE_PRESENT = isClassPresent("net.optifine.Config");
     private static float lastResolvedCameraYaw = 0.0F;
     private static boolean localPlayerStateCaptured = false;
+
+    private static final ControllerCalibration controllerCalibration = new ControllerCalibration();
+    private static boolean lastControllerPresent = false;
     private static boolean localPlayerInvisible;
     private static boolean localPlayerSilent;
 
@@ -117,6 +124,7 @@ public final class FpvClientHandler {
 
     public static void onClientSetup(final FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
+            ControllerCalibrationStore.loadInto(controllerCalibration);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onClientTick);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderTick);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onCameraAngles);
@@ -138,6 +146,7 @@ public final class FpvClientHandler {
         event.register(FPV_YAW_LEFT);
         event.register(FPV_YAW_RIGHT);
         event.register(FPV_ARM);
+        event.register(FPV_CALIBRATE);
     }
 
     private static void onRenderTick(final TickEvent.RenderTickEvent event) {
@@ -239,6 +248,9 @@ public final class FpvClientHandler {
             return;
         }
 
+        // Controller calibration: keybind and auto-show on first detect
+        handleCalibration(minecraft);
+
         if (minecraft.getCameraEntity() instanceof FpvDroneEntity cameraDrone && (cameraDrone.isRemoved() || !cameraDrone.isAlive())) {
             resetState();
             return;
@@ -276,7 +288,9 @@ public final class FpvClientHandler {
 
         final boolean canProcessInput = minecraft.screen == null;
 
-        final FpvControllerInput.State controllerState = canProcessInput ? FpvControllerInput.poll() : new FpvControllerInput.State(false, 0, 0, 0, 0, false, false);
+        final FpvControllerInput.State controllerState = canProcessInput
+            ? FpvControllerInput.poll(controllerCalibration)
+            : new FpvControllerInput.State(false, 0, 0, 0, 0, false, false);
         final boolean controllerActive = isControllerInputActive(controllerState);
 
         double curX = minecraft.mouseHandler.xpos();
@@ -288,13 +302,16 @@ public final class FpvClientHandler {
             mouseInitialized = true;
         }
 
+        float mousePitchDelta = 0.0F;
+        float mouseRollDelta = 0.0F;
         if (canProcessInput && FullfudClientConfig.CLIENT.fpvCameraMouseLookEnabled.get()) {
-            double dx = curX - lastMouseX;
-            double dy = curY - lastMouseY;
-
-            final double sensitivity = FullfudClientConfig.CLIENT.fpvCameraMouseSensitivity.get();
-            mouseAccumX += dx * sensitivity;
-            mouseAccumY -= dy * sensitivity;
+            final double dx = curX - lastMouseX;
+            final double dy = curY - lastMouseY;
+            final float vanillaSensitivity = (float) (double) minecraft.options.sensitivity().get();
+            final float legacyMultiplier = (float) (FullfudClientConfig.CLIENT.fpvCameraMouseSensitivity.get() / 0.015D);
+            final float mouseScale = vanillaSensitivity * 0.007F * legacyMultiplier;
+            mousePitchDelta = (float) dy * mouseScale;
+            mouseRollDelta = (float) dx * mouseScale;
         }
 
         lastMouseX = curX;
@@ -310,11 +327,8 @@ public final class FpvClientHandler {
         final float keyPitch = axis(minecraft.options.keyUp.isDown(), minecraft.options.keyDown.isDown());
         final float keyRoll = axis(minecraft.options.keyLeft.isDown(), minecraft.options.keyRight.isDown());
 
-        float pitchInput = Mth.clamp(keyPitch + (float) mouseAccumY, -1.0F, 1.0F);
-        float rollInput = Mth.clamp(keyRoll + (float) mouseAccumX, -1.0F, 1.0F);
-        
-        mouseAccumX = 0;
-        mouseAccumY = 0;
+        float pitchInput = keyPitch;
+        float rollInput = keyRoll;
 
         float yawInput = axis(FPV_YAW_LEFT.isDown(), FPV_YAW_RIGHT.isDown());
         final boolean jumpDown = minecraft.options.keyJump.isDown();
@@ -324,6 +338,8 @@ public final class FpvClientHandler {
                 pitchInput = controllerState.pitch();
                 rollInput = controllerState.roll();
                 yawInput = controllerState.yaw();
+                mousePitchDelta = 0.0F;
+                mouseRollDelta = 0.0F;
             } else {
                 pitchInput = Mth.clamp(pitchInput + controllerState.pitch(), -1.0F, 1.0F);
                 rollInput = Mth.clamp(rollInput + controllerState.roll(), -1.0F, 1.0F);
@@ -335,8 +351,11 @@ public final class FpvClientHandler {
             final double slew = FullfudClientConfig.CLIENT.fpvControllerThrottleSlew.get();
             final float a = (float) Mth.clamp(1.0D - slew, 0.0D, 1.0D);
             throttleDemand = Mth.lerp(a, throttleDemand, Mth.clamp(controllerState.throttle(), 0.0F, 1.0F));
+            throttleDisplayMax = 1.0F;
         } else {
-            throttleDemand = jumpDown ? 1.0F : 0.0F;
+            // fpvdrone intentionally avoids an unrestricted keyboard throttle path.
+            throttleDemand = jumpDown ? KEYBOARD_THROTTLE_MAX : 0.0F;
+            throttleDisplayMax = KEYBOARD_THROTTLE_MAX;
         }
 
         byte armAction = 0;
@@ -348,7 +367,16 @@ public final class FpvClientHandler {
             armAction = drone.isArmed() ? (byte) 2 : (byte) 1;
         }
         
-        FullfudNetwork.getChannel().sendToServer(new FpvControlPacket(drone.getUUID(), pitchInput, rollInput, yawInput, throttleDemand, armAction));
+        FullfudNetwork.getChannel().sendToServer(new FpvControlPacket(
+            drone.getUUID(),
+            pitchInput,
+            rollInput,
+            yawInput,
+            mousePitchDelta,
+            mouseRollDelta,
+            throttleDemand,
+            armAction
+        ));
 
         if (FullfudClientConfig.CLIENT.fpvCameraReleaseOnPause.get() && minecraft.screen instanceof PauseScreen && !escRequested) {
             escRequested = true;
@@ -436,6 +464,32 @@ public final class FpvClientHandler {
         }
     }
 
+    private static void handleCalibration(final Minecraft minecraft) {
+        if (minecraft == null || minecraft.player == null) {
+            return;
+        }
+
+        final FpvControllerInput.RawJoystickState rawState = FpvControllerInput.snapshotRawState();
+        final boolean controllerNow = rawState != null;
+
+        if (controllerNow
+                && !lastControllerPresent
+                && rawState != null
+                && !controllerCalibration.isReadyForController(rawState.name())
+                && !(minecraft.screen instanceof ControllerCalibrationScreen)) {
+            minecraft.setScreen(new ControllerCalibrationScreen(controllerCalibration));
+        }
+        lastControllerPresent = controllerNow;
+
+        if (FPV_CALIBRATE.consumeClick() && minecraft.screen == null) {
+            minecraft.setScreen(new ControllerCalibrationScreen(controllerCalibration));
+        }
+    }
+
+    public static ControllerCalibration getCalibration() {
+        return controllerCalibration;
+    }
+
     private static void resetState() {
         final Minecraft minecraft = Minecraft.getInstance();
         final boolean shouldRestoreCamera = minecraft != null
@@ -453,12 +507,11 @@ public final class FpvClientHandler {
         restoreLocalPlayerState();
         activeDrone = null;
         throttleDemand = 0.0F;
+        throttleDisplayMax = 1.0F;
         escRequested = false;
         releaseSent = false;
         distanceToPilot = 0;
         lastResolvedCameraYaw = 0.0F;
-        mouseAccumX = 0;
-        mouseAccumY = 0;
         mouseInitialized = false;
     }
 
@@ -567,15 +620,17 @@ public final class FpvClientHandler {
         if (Math.abs(state.pitch()) > axisThreshold || Math.abs(state.roll()) > axisThreshold || Math.abs(state.yaw()) > axisThreshold) {
             return true;
         }
+        if (state.hasThrottle()) {
+            final float throttleNeutral = expectedThrottleNeutral();
+            final float throttleDelta = Math.abs(Mth.clamp(state.throttle(), 0.0F, 1.0F) - throttleNeutral);
+            if (throttleDelta > axisThreshold) {
+                return true;
+            }
+        }
         if (state.armClicked()) {
             return true;
         }
-        if (!state.hasThrottle()) {
-            return false;
-        }
-        final float throttleNeutral = expectedThrottleNeutral();
-        final float throttleDelta = Math.abs(Mth.clamp(state.throttle(), 0.0F, 1.0F) - throttleNeutral);
-        return throttleDelta > 0.08F;
+        return false;
     }
 
     private static float expectedThrottleNeutral() {
@@ -734,7 +789,7 @@ public final class FpvClientHandler {
         g.drawString(font, cY, 10, botY - 10, 0xFFFFFFFF, true);
         g.drawString(font, cX, 10, botY - 20, 0xFFFFFFFF, true);
 
-        MutableComponent power = Component.literal(String.format("Power = %3d%%", (int) (drone.getThrust() * 100))).withStyle(DIGITAL_STYLE);
+        MutableComponent power = Component.literal(String.format("Power = %3d%%", displayedPowerPercent(drone))).withStyle(DIGITAL_STYLE);
         MutableComponent ias = Component.literal(String.format("IAS = %.0f KM/h", speedMs * 3.6D)).withStyle(DIGITAL_STYLE);
         MutableComponent gs = Component.literal(String.format("GS = %.0f KM/h", groundSpeedKmh)).withStyle(DIGITAL_STYLE);
 
@@ -742,6 +797,15 @@ public final class FpvClientHandler {
         g.drawString(font, gs, rightX - font.width(gs), botY, 0xFFFFFFFF, true);
         g.drawString(font, ias, rightX - font.width(ias), botY - 10, 0xFFFFFFFF, true);
         g.drawString(font, power, rightX - font.width(power), botY - 20, 0xFFFFFFFF, true);
+    }
+
+    private static int displayedPowerPercent(final FpvDroneEntity drone) {
+        if (drone == null) {
+            return 0;
+        }
+        final float displayMax = Math.max(throttleDisplayMax, 0.01F);
+        final float normalizedPower = Mth.clamp(drone.getThrust() / displayMax, 0.0F, 1.0F);
+        return Mth.floor(normalizedPower * 100.0F);
     }
 
     private static void onRenderOverlay(final RenderGuiOverlayEvent.Pre event) {

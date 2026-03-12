@@ -11,6 +11,8 @@ public record FpvControlPacket(UUID droneId,
                                float pitchInput,
                                float rollInput,
                                float yawInput,
+                               float mousePitchDelta,
+                               float mouseRollDelta,
                                float throttle,
                                byte armAction) {
 
@@ -19,9 +21,11 @@ public record FpvControlPacket(UUID droneId,
         final float pitch = buffer.readFloat();
         final float roll = buffer.readFloat();
         final float yaw = buffer.readFloat();
+        final float mousePitchDelta = buffer.readFloat();
+        final float mouseRollDelta = buffer.readFloat();
         final float throttle = buffer.readFloat();
         final byte arm = buffer.readByte();
-        return new FpvControlPacket(droneId, pitch, roll, yaw, throttle, arm);
+        return new FpvControlPacket(droneId, pitch, roll, yaw, mousePitchDelta, mouseRollDelta, throttle, arm);
     }
 
     public void encode(final FriendlyByteBuf buffer) {
@@ -29,6 +33,8 @@ public record FpvControlPacket(UUID droneId,
         buffer.writeFloat(pitchInput);
         buffer.writeFloat(rollInput);
         buffer.writeFloat(yawInput);
+        buffer.writeFloat(mousePitchDelta);
+        buffer.writeFloat(mouseRollDelta);
         buffer.writeFloat(throttle);
         buffer.writeByte(armAction);
     }

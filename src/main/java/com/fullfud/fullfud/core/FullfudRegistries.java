@@ -7,6 +7,7 @@ import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedColor;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.entity.ShahedLauncherEntity;
+import com.fullfud.fullfud.common.entity.drone.DronePreset;
 import com.fullfud.fullfud.common.item.MonitorItem;
 import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.common.item.RebEmitterItem;
@@ -60,15 +61,15 @@ public final class FullfudRegistries {
     );
 
     public static final RegistryObject<Item> FPV_DRONE_ITEM = ITEMS.register("fpv_drone", () ->
-        new FpvDroneItem(new Item.Properties().stacksTo(1))
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STANDARD_5INCH, 1.0D, 1.0D)
     );
 
     public static final RegistryObject<Item> FPV_DRONE_ITEM_X2 = ITEMS.register("fpv_drone_x2", () ->
-        new FpvDroneItem(new Item.Properties().stacksTo(1), 2.0D, 2.0D)
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.TINY_WHOOP, 2.0D, 2.0D)
     );
 
     public static final RegistryObject<Item> FPV_DRONE_ITEM_X4 = ITEMS.register("fpv_drone_x4", () ->
-        new FpvDroneItem(new Item.Properties().stacksTo(1), 4.0D, 4.0D)
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STRIKE_7INCH, 4.0D, 4.0D)
     );
 
     public static final RegistryObject<Item> FPV_CONTROLLER_ITEM = ITEMS.register("fpv_controller", () ->

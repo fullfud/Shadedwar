@@ -15,3 +15,5 @@ Thumbs.db
 *.swp
 *.DS_Store
 /.tmp_mcp
+/.claude
+implementation.md
