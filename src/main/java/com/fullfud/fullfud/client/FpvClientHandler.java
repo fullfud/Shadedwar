@@ -80,7 +80,7 @@ public final class FpvClientHandler {
     private static final ResourceLocation SIGNAL_100 = new ResourceLocation("fullfud", "textures/gui/hud/signal/100.png");
 
     private static final ResourceLocation SHADER_LOC = new ResourceLocation("fullfud", "shaders/post/fpv_post.json");
-    private static final float KEYBOARD_THROTTLE_MAX = 0.70F;
+    private static final float KEYBOARD_THROTTLE_MAX = 0.60F;
 
     private static UUID activeDrone;
     private static float throttleDemand;
