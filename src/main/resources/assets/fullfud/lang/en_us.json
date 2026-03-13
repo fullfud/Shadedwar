@@ -33,7 +33,7 @@
   "message.fullfud.monitor.open_failed": "Failed to open Shahed monitor.",
   "message.fullfud.monitor.turn": "TURN AROUND",
   "screen.fullfud.monitor.no_signal": "NO VIDEO SIGNAL",
-  "key.categories.fullfud": "Fullfud Controls",
+  "key.categories.fullfud": "Drone Controls",
   "key.fullfud.power_up": "Increase Power",
   "key.fullfud.power_down": "Decrease Power",
   "key.fullfud.fpv_yaw_left": "Yaw Left",
