@@ -52,6 +52,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
@@ -83,6 +84,12 @@ public final class FpvClientHandler {
     private static final float KEYBOARD_THROTTLE_MAX = 0.65F;
 
     private static UUID activeDrone;
+    private static FpvDroneEntity cachedResolvedDrone;
+    private static long cachedResolvedDroneGameTime = Long.MIN_VALUE;
+    private static UUID cachedResolvedPlayerId;
+    private static UUID cachedResolvedPreferredDroneId;
+    private static Object cachedResolvedLevel;
+    private static boolean resolvedDroneCacheComputed;
     private static float throttleDemand;
     private static float throttleDisplayMax = 1.0F;
     private static double speedMs;
@@ -506,6 +513,7 @@ public final class FpvClientHandler {
         }
         restoreLocalPlayerState();
         activeDrone = null;
+        invalidateResolvedDroneCache();
         throttleDemand = 0.0F;
         throttleDisplayMax = 1.0F;
         escRequested = false;
@@ -943,22 +951,77 @@ public final class FpvClientHandler {
         return controller != null && controller.equals(minecraft.player.getUUID());
     }
 
+    private static void invalidateResolvedDroneCache() {
+        cachedResolvedDrone = null;
+        cachedResolvedDroneGameTime = Long.MIN_VALUE;
+        cachedResolvedPlayerId = null;
+        cachedResolvedPreferredDroneId = null;
+        cachedResolvedLevel = null;
+        resolvedDroneCacheComputed = false;
+    }
+
+    private static FpvDroneEntity cacheResolvedDrone(
+        final Minecraft minecraft,
+        final UUID preferredDroneId,
+        final FpvDroneEntity drone
+    ) {
+        if (minecraft == null || minecraft.level == null || minecraft.player == null) {
+            invalidateResolvedDroneCache();
+            return drone;
+        }
+        cachedResolvedDrone = drone;
+        cachedResolvedDroneGameTime = minecraft.level.getGameTime();
+        cachedResolvedPlayerId = minecraft.player.getUUID();
+        cachedResolvedPreferredDroneId = preferredDroneId;
+        cachedResolvedLevel = minecraft.level;
+        resolvedDroneCacheComputed = true;
+        return drone;
+    }
+
+    private static boolean isResolvedDroneCacheHit(final Minecraft minecraft, final UUID preferredDroneId) {
+        if (!resolvedDroneCacheComputed || minecraft == null || minecraft.level == null || minecraft.player == null) {
+            return false;
+        }
+        if (cachedResolvedLevel != minecraft.level || cachedResolvedDroneGameTime != minecraft.level.getGameTime()) {
+            return false;
+        }
+        if (!Objects.equals(cachedResolvedPlayerId, minecraft.player.getUUID())) {
+            return false;
+        }
+        if (!Objects.equals(cachedResolvedPreferredDroneId, preferredDroneId)) {
+            return false;
+        }
+        if (cachedResolvedDrone == null) {
+            return true;
+        }
+        return !cachedResolvedDrone.isRemoved()
+            && cachedResolvedDrone.isAlive()
+            && isDroneControlledByLocalPlayer(minecraft, cachedResolvedDrone);
+    }
+
     static FpvDroneEntity resolveActiveControlledDrone(final Minecraft minecraft) {
         if (minecraft == null || minecraft.player == null || minecraft.level == null) {
             return null;
-        }
-
-        if (minecraft.getCameraEntity() instanceof FpvDroneEntity cameraDrone
-            && !cameraDrone.isRemoved()
-            && cameraDrone.isAlive()
-            && isDroneControlledByLocalPlayer(minecraft, cameraDrone)) {
-            return cameraDrone;
         }
 
         final ItemStack head = minecraft.player.getItemBySlot(EquipmentSlot.HEAD);
         UUID preferredDroneId = null;
         if (head.getItem() instanceof com.fullfud.fullfud.common.item.FpvGogglesItem) {
             preferredDroneId = com.fullfud.fullfud.common.item.FpvGogglesItem.getLinked(head).orElse(null);
+        }
+        if (preferredDroneId == null) {
+            preferredDroneId = activeDrone;
+        }
+
+        if (minecraft.getCameraEntity() instanceof FpvDroneEntity cameraDrone
+            && !cameraDrone.isRemoved()
+            && cameraDrone.isAlive()
+            && isDroneControlledByLocalPlayer(minecraft, cameraDrone)) {
+            return cacheResolvedDrone(minecraft, preferredDroneId, cameraDrone);
+        }
+
+        if (isResolvedDroneCacheHit(minecraft, preferredDroneId)) {
+            return cachedResolvedDrone;
         }
 
         FpvDroneEntity fallback = null;
@@ -973,13 +1036,13 @@ public final class FpvClientHandler {
                 continue;
             }
             if (preferredDroneId != null && preferredDroneId.equals(drone.getUUID())) {
-                return drone;
+                return cacheResolvedDrone(minecraft, preferredDroneId, drone);
             }
             if (fallback == null) {
                 fallback = drone;
             }
         }
-        return fallback;
+        return cacheResolvedDrone(minecraft, preferredDroneId, fallback);
     }
 
     private static void stabilizeLocalPlayer(final net.minecraft.client.player.LocalPlayer player, final FpvDroneEntity drone) {

@@ -1,27 +1,29 @@
 package com.fullfud.fullfud.common.entity.drone;
 
 public enum DronePreset {
-    STANDARD_5INCH(
-        "5 Inch 4S",
-        2400.0f,
-        22.0f,
+    STANDARD_STRIKE(
+        "7 Inch 6S",
+        1300.0f,
+        28.0f,
+        6.5f,
+        6,
+        1800,
         7.0f,
-        4,
-        1300,
-        5.0f,
-        4.6f,
-        3,
-        500.0f,
-        30.0f,
-        30.0f,
-        200.0f,
-        11.0f,
-        15.0f,
-        5.0f,
-        17.0f,
+        3.5f,
+        2,
+        801.3937f,
+        35.0f,
+        40.0f,
+        300.0f,
+        14.0f,
+        20.0f,
+        6.0f,
+        20.0f,
         1.15f, 0.67f, 0.0f,
         1.15f, 0.67f, 0.0f,
         1.15f, 0.67f, 0.0f,
+        1.0f,
+        false,
         false
     ),
     TINY_WHOOP(
@@ -34,7 +36,7 @@ public enum DronePreset {
         1.5f,
         1.5f,
         4,
-        111.7263f,
+        103.6263f,
         25.0f,
         25.0f,
         25.0f,
@@ -45,6 +47,8 @@ public enum DronePreset {
         1.15f, 0.67f, 0.0f,
         1.15f, 0.67f, 0.0f,
         1.15f, 0.67f, 0.0f,
+        1.25f,
+        false,
         false
     ),
     STRIKE_7INCH(
@@ -68,6 +72,8 @@ public enum DronePreset {
         1.15f, 0.67f, 0.0f,
         1.15f, 0.67f, 0.0f,
         1.15f, 0.67f, 0.0f,
+        1.0f,
+        true,
         false
     );
 
@@ -97,6 +103,8 @@ public enum DronePreset {
     public final float yawRate;
     public final float yawSuper;
     public final float yawExpo;
+    public final float motorCommandScale;
+    public final boolean explodesOnDestroy;
     public final boolean flightMode3d;
 
     DronePreset(
@@ -126,6 +134,8 @@ public enum DronePreset {
         final float yawRate,
         final float yawSuper,
         final float yawExpo,
+        final float motorCommandScale,
+        final boolean explodesOnDestroy,
         final boolean flightMode3d
     ) {
         this.displayName = displayName;
@@ -154,6 +164,8 @@ public enum DronePreset {
         this.yawRate = yawRate;
         this.yawSuper = yawSuper;
         this.yawExpo = yawExpo;
+        this.motorCommandScale = motorCommandScale;
+        this.explodesOnDestroy = explodesOnDestroy;
         this.flightMode3d = flightMode3d;
     }
 
@@ -162,6 +174,6 @@ public enum DronePreset {
         if (ordinal >= 0 && ordinal < values.length) {
             return values[ordinal];
         }
-        return STANDARD_5INCH;
+        return STANDARD_STRIKE;
     }
 }

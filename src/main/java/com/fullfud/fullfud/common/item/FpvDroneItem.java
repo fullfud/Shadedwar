@@ -18,7 +18,7 @@ public class FpvDroneItem extends Item {
     private final double signalPenetrationScale;
 
     public FpvDroneItem(final Properties properties) {
-        this(properties, DronePreset.STANDARD_5INCH, 1.0D, 1.0D);
+        this(properties, DronePreset.STANDARD_STRIKE, 1.0D, 1.0D);
     }
 
     public FpvDroneItem(

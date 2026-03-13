@@ -61,14 +61,38 @@ public final class FullfudRegistries {
     );
 
     public static final RegistryObject<Item> FPV_DRONE_ITEM = ITEMS.register("fpv_drone", () ->
-        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STANDARD_5INCH, 1.0D, 1.0D)
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STANDARD_STRIKE, 1.0D, 1.0D)
     );
 
     public static final RegistryObject<Item> FPV_DRONE_ITEM_X2 = ITEMS.register("fpv_drone_x2", () ->
-        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.TINY_WHOOP, 2.0D, 2.0D)
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STANDARD_STRIKE, 2.0D, 2.0D)
     );
 
     public static final RegistryObject<Item> FPV_DRONE_ITEM_X4 = ITEMS.register("fpv_drone_x4", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STANDARD_STRIKE, 4.0D, 4.0D)
+    );
+
+    public static final RegistryObject<Item> FPV_DRONE_WHOOP_ITEM = ITEMS.register("fpv_drone_whoop", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.TINY_WHOOP, 1.0D, 1.0D)
+    );
+
+    public static final RegistryObject<Item> FPV_DRONE_WHOOP_ITEM_X2 = ITEMS.register("fpv_drone_whoop_x2", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.TINY_WHOOP, 2.0D, 2.0D)
+    );
+
+    public static final RegistryObject<Item> FPV_DRONE_WHOOP_ITEM_X4 = ITEMS.register("fpv_drone_whoop_x4", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.TINY_WHOOP, 4.0D, 4.0D)
+    );
+
+    public static final RegistryObject<Item> FPV_DRONE_STRIKE_ITEM = ITEMS.register("fpv_drone_strike", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STRIKE_7INCH, 1.0D, 1.0D)
+    );
+
+    public static final RegistryObject<Item> FPV_DRONE_STRIKE_ITEM_X2 = ITEMS.register("fpv_drone_strike_x2", () ->
+        new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STRIKE_7INCH, 2.0D, 2.0D)
+    );
+
+    public static final RegistryObject<Item> FPV_DRONE_STRIKE_ITEM_X4 = ITEMS.register("fpv_drone_strike_x4", () ->
         new FpvDroneItem(new Item.Properties().stacksTo(1), DronePreset.STRIKE_7INCH, 4.0D, 4.0D)
     );
 

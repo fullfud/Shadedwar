@@ -43,7 +43,7 @@ The current gameplay focus includes:
 ### Flight and Drone Systems
 
 - Multiple FPV drone presets:
-  - `5 Inch 4S`
+  - `7 Inch 6S`
   - `Tiny Whoop`
   - `7 Inch 6S Strike`
 - FPV goggles and controller linking flow

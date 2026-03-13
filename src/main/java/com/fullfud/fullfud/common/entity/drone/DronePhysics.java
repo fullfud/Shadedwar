@@ -56,6 +56,7 @@ public class DronePhysics {
     private float yawRateSetting;
     private float yawSuper;
     private float yawExpo;
+    private float motorCommandScale;
     private boolean flightMode3d;
 
     private float massKg;
@@ -87,7 +88,7 @@ public class DronePhysics {
     private float yawRate;
 
     public DronePhysics() {
-        applyPreset(DronePreset.STANDARD_5INCH);
+        applyPreset(DronePreset.STANDARD_STRIKE);
     }
 
     public void applyPreset(final DronePreset preset) {
@@ -116,6 +117,7 @@ public class DronePhysics {
         this.yawRateSetting = preset.yawRate;
         this.yawSuper = preset.yawSuper;
         this.yawExpo = preset.yawExpo;
+        this.motorCommandScale = preset.motorCommandScale;
         this.flightMode3d = preset.flightMode3d;
         recalculateDerived();
         reset();
@@ -274,7 +276,7 @@ public class DronePhysics {
 
     private void integrateStep(final float throttle, final float dt, final Vector3f displacement) {
         final float throttleScale = Mth.lerp(throttle, 4.0f, 3.6f);
-        final float motorCommand = throttleScale * batteryCells * throttle;
+        final float motorCommand = throttleScale * batteryCells * throttle * motorCommandScale;
 
         final float speed = velocity.length();
         final Vector3f totalForce = new Vector3f(0.0f, -GRAVITY_ACCEL * massKg, 0.0f);

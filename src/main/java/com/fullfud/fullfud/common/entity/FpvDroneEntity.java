@@ -138,10 +138,16 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private final AnimatableInstanceCache animationCache = GeckoLibUtil.createInstanceCache(this);
     private final Quaternionf qRotation = new Quaternionf();
     private final Quaternionf qRotationO = new Quaternionf();
+    private final Quaternionf syncedQuaternionScratch = new Quaternionf();
+    private final Quaternionf zeroRollQuaternionScratch = new Quaternionf();
+    private final Vector3f cameraForwardScratch = new Vector3f();
+    private final Vector3f cameraUpScratch = new Vector3f();
+    private final Vector3f zeroRollUpScratch = new Vector3f();
+    private final Vector3f rollCrossScratch = new Vector3f();
 
     private boolean physicsInitialized = false;
 
-    private DronePreset dronePreset = DronePreset.STANDARD_5INCH;
+    private DronePreset dronePreset = DronePreset.STANDARD_STRIKE;
     private final DronePhysics dronePhysics = new DronePhysics();
 
     private float targetThrottle;
@@ -441,7 +447,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 double crashThreshold = 10.0D; // blocks/sec — above this, drone explodes
 
                 if (speed > crashThreshold) {
-                    explode();
+                    destroyOnImpact();
                     return;
                 }
 
@@ -456,7 +462,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 final PlayerDecoyEntity decoy = PlayerDecoyManager.getDecoyByDrone(this.getUUID());
                 if (decoy != null && entity == decoy) continue;
                 if (entity instanceof ServerPlayer sp && entityData.get(DATA_CONTROLLER).map(sp.getUUID()::equals).orElse(false)) continue;
-                explode();
+                destroyOnImpact();
                 return;
             }
         }
@@ -685,6 +691,56 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         ).normalize();
     }
 
+    private Quaternionf readQuaternionFromData(final Quaternionf destination) {
+        return destination.set(
+            this.entityData.get(DATA_QX),
+            this.entityData.get(DATA_QY),
+            this.entityData.get(DATA_QZ),
+            this.entityData.get(DATA_QW)
+        ).normalize();
+    }
+
+    private void applyVisualOrientationFromQuaternion(final Quaternionf orientationQuaternion) {
+        cameraForwardScratch.set(0.0F, 0.0F, 1.0F);
+        cameraUpScratch.set(0.0F, 1.0F, 0.0F);
+        orientationQuaternion.transform(cameraForwardScratch);
+        orientationQuaternion.transform(cameraUpScratch);
+
+        final double horiz = Math.sqrt(
+            cameraForwardScratch.x * cameraForwardScratch.x + cameraForwardScratch.z * cameraForwardScratch.z
+        );
+
+        float newPitch = (float) Math.toDegrees(Math.atan2(-cameraForwardScratch.y, horiz));
+        float newYaw = resolveStableYaw(cameraForwardScratch, newPitch);
+
+        zeroRollQuaternionScratch.rotationYXZ(
+            (float) Math.toRadians(-newYaw),
+            (float) Math.toRadians(newPitch),
+            0.0F
+        );
+        zeroRollUpScratch.set(0.0F, 1.0F, 0.0F);
+        zeroRollQuaternionScratch.transform(zeroRollUpScratch);
+
+        rollCrossScratch.set(zeroRollUpScratch).cross(cameraUpScratch);
+        float newRoll = (float) Math.toDegrees(
+            Math.atan2(rollCrossScratch.dot(cameraForwardScratch), zeroRollUpScratch.dot(cameraUpScratch))
+        );
+
+        if (Float.isNaN(newYaw)) {
+            newYaw = this.getYRot();
+        }
+        if (Float.isNaN(newPitch)) {
+            newPitch = this.getXRot();
+        }
+        if (Float.isNaN(newRoll)) {
+            newRoll = (float) this.droneRoll;
+        }
+
+        this.setYRot(Mth.wrapDegrees(newYaw));
+        this.setXRot(Mth.wrapDegrees(newPitch));
+        this.droneRoll = Mth.wrapDegrees(newRoll);
+    }
+
     private void updateSimplePhysics() {
         final float dt = (float) TICK_SECONDS;
 
@@ -838,7 +894,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return false;
         }
         if (isArmed() || source.getDirectEntity() instanceof net.minecraft.world.entity.projectile.Projectile) {
-            explode();
+            destroyOnImpact();
             return true;
         }
         dropAsItem();
@@ -863,7 +919,15 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         super.remove(reason);
     }
 
-    private void explode() {
+    private void destroyOnImpact() {
+        if (getDronePreset().explodesOnDestroy) {
+            explode();
+        } else {
+            crashAndDrop();
+        }
+    }
+
+    private void prepareForDestruction() {
         if (detonating || isRemoved()) {
             return;
         }
@@ -876,6 +940,22 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         } else {
             PlayerDecoyManager.removeDecoyByDrone(getUUID());
         }
+    }
+
+    private void crashAndDrop() {
+        if (detonating || isRemoved()) {
+            return;
+        }
+        prepareForDestruction();
+        dropAsItem();
+        discard();
+    }
+
+    private void explode() {
+        if (detonating || isRemoved()) {
+            return;
+        }
+        prepareForDestruction();
         spawnTntEffect();
         discard();
     }
@@ -897,11 +977,35 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         spawnAtLocation(new ItemStack(resolveDropItem()));
     }
 
+    private int resolveSignalMultiplier() {
+        final double rangeScale = getSignalRangeScale();
+        if (rangeScale >= 3.0D) {
+            return 4;
+        }
+        if (rangeScale >= 1.5D) {
+            return 2;
+        }
+        return 1;
+    }
+
     private Item resolveDropItem() {
+        final int signalMultiplier = resolveSignalMultiplier();
         return switch (getDronePreset()) {
-            case TINY_WHOOP -> FullfudRegistries.FPV_DRONE_ITEM_X2.get();
-            case STRIKE_7INCH -> FullfudRegistries.FPV_DRONE_ITEM_X4.get();
-            case STANDARD_5INCH -> FullfudRegistries.FPV_DRONE_ITEM.get();
+            case TINY_WHOOP -> switch (signalMultiplier) {
+                case 4 -> FullfudRegistries.FPV_DRONE_WHOOP_ITEM_X4.get();
+                case 2 -> FullfudRegistries.FPV_DRONE_WHOOP_ITEM_X2.get();
+                default -> FullfudRegistries.FPV_DRONE_WHOOP_ITEM.get();
+            };
+            case STRIKE_7INCH -> switch (signalMultiplier) {
+                case 4 -> FullfudRegistries.FPV_DRONE_STRIKE_ITEM_X4.get();
+                case 2 -> FullfudRegistries.FPV_DRONE_STRIKE_ITEM_X2.get();
+                default -> FullfudRegistries.FPV_DRONE_STRIKE_ITEM.get();
+            };
+            case STANDARD_STRIKE -> switch (signalMultiplier) {
+                case 4 -> FullfudRegistries.FPV_DRONE_ITEM_X4.get();
+                case 2 -> FullfudRegistries.FPV_DRONE_ITEM_X2.get();
+                default -> FullfudRegistries.FPV_DRONE_ITEM.get();
+            };
         };
     }
 
@@ -1514,8 +1618,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final class ClientSide {
         private static void tick(final FpvDroneEntity drone) {
             drone.throttleOutput = drone.entityData.get(DATA_THRUST);
-            final float targetRoll = drone.entityData.get(DATA_ROLL);
-            final Quaternionf syncedQ = drone.readQuaternionFromData();
+            final Quaternionf syncedQ = drone.readQuaternionFromData(drone.syncedQuaternionScratch);
 
             if (drone.lerpSteps > 0) {
                 final double d0 = drone.getX() + (drone.lerpX - drone.getX()) / (double) drone.lerpSteps;
@@ -1526,12 +1629,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             }
 
             drone.qRotation.set(syncedQ);
-
-            final FpvDroneEntity.CameraOrientation orientation = drone.getCameraOrientation(1.0F);
-            drone.setYRot(Mth.wrapDegrees(orientation.yaw()));
-            drone.setXRot(Mth.wrapDegrees(orientation.pitch()));
-            drone.droneRoll = Mth.wrapDegrees(orientation.roll());
-
+            drone.applyVisualOrientationFromQuaternion(drone.qRotation);
             drone.setRot(drone.getYRot(), drone.getXRot());
 
             final boolean currentlyArmed = drone.isArmed();
