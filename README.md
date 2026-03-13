@@ -131,8 +131,6 @@ The most important paths for contributors are:
 - `src/main/resources`
   - assets, lang files, shaders, and `mods.toml`
 
-For active FPV migration notes, see [implementation.md](implementation.md).
-
 ## Contributing
 
 Contributions are welcome, especially for:
