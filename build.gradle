@@ -136,58 +136,6 @@ jar {
 
 jar.finalizedBy("reobfJar")
 
-def cleanResourcesDir = file("src/clean/resources")
-def cleanResourcesOut = layout.buildDirectory.dir("cleanResources")
-def mainResourcesOut = file("$buildDir/resources/main")
-
-tasks.register("syncCleanResources", Copy) {
-    dependsOn("processResources")
-    from(mainResourcesOut) {
-        if (cleanResourcesDir.exists()) {
-            exclude { details ->
-                file("${cleanResourcesDir}/${details.path}").exists()
-            }
-        }
-    }
-    if (cleanResourcesDir.exists()) {
-        from(cleanResourcesDir)
-    }
-    into(cleanResourcesOut)
-}
-
-tasks.register("jarClean", Jar) {
-    archiveVersion.set(providers.provider { project.version.toString() })
-    archiveClassifier.set("clean")
-    dependsOn("classes")
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    manifest {
-        attributes([
-            "Specification-Title": "shadedwar",
-            "Specification-Vendor": "fullfud",
-            "Specification-Version": "${-> project.version}",
-            "Implementation-Title": project.name,
-            "Implementation-Version": "${-> project.version}",
-            "Implementation-Vendor": "fullfud"
-        ])
-    }
-    if (cleanResourcesDir.exists()) {
-        from(cleanResourcesDir)
-    }
-    from(sourceSets.main.output)
-}
-
-reobf {
-    jarClean {}
-}
-
-tasks.named("jarClean") {
-    finalizedBy("reobfJarClean")
-}
-
-tasks.register("buildClean") {
-    dependsOn("reobfJarClean")
-}
-
 processResources {
     inputs.property "version", providers.provider { project.version.toString() }
     filesMatching("META-INF/mods.toml") {
