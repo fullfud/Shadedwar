@@ -148,8 +148,8 @@ public final class FpvControllerInput {
         final float leftY = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_LEFT_Y), dz);
 
         final float pitch = invert(rightY, FullfudClientConfig.CLIENT.fpvControllerInvertPitch.get());
-        final float roll = invert(rightX, FullfudClientConfig.CLIENT.fpvControllerInvertRoll.get());
-        final float yaw = invert(-leftX, FullfudClientConfig.CLIENT.fpvControllerInvertYaw.get());
+        final float roll = invert(-rightX, FullfudClientConfig.CLIENT.fpvControllerInvertRoll.get());
+        final float yaw = invert(leftX, FullfudClientConfig.CLIENT.fpvControllerInvertYaw.get());
 
         final float throttleTarget;
         final boolean hasThrottle = true;
@@ -182,7 +182,7 @@ public final class FpvControllerInput {
         final int yawAxis = FullfudClientConfig.CLIENT.fpvControllerRawYawAxis.get();
         final int throttleAxis = FullfudClientConfig.CLIENT.fpvControllerRawThrottleAxis.get();
 
-        float roll = getAxis(axes, rollAxis);
+        float roll = -getAxis(axes, rollAxis);
         float pitch = getAxis(axes, pitchAxis);
         float yaw = getAxis(axes, yawAxis);
         float throttleAxisValue = getAxis(axes, throttleAxis);

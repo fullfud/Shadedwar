@@ -106,7 +106,8 @@ public class ControllerCalibrationScreen extends Screen {
 
         final float delta = safeGet(liveAxes, axisIndex) - safeGet(baselineAxes, axisIndex);
         workingCalibration.setAxisMapping(logicalAxis, axisIndex);
-        workingCalibration.setAxisInverted(logicalAxis, delta < 0.0F);
+        final boolean invertPositiveDirection = logicalAxis == ControllerCalibration.AXIS_YAW || logicalAxis == ControllerCalibration.AXIS_ROLL;
+        workingCalibration.setAxisInverted(logicalAxis, invertPositiveDirection ? delta > 0.0F : delta < 0.0F);
         if (axisIndex >= 0 && axisIndex < usedAxes.length) {
             usedAxes[axisIndex] = true;
         }
