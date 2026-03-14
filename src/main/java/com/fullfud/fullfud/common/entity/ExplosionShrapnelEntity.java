@@ -11,6 +11,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.projectile.ThrowableItemProjectile;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
@@ -109,6 +111,20 @@ public class ExplosionShrapnelEntity extends ThrowableItemProjectile {
             spawnImpactEffects(serverLevel);
         }
         discard();
+    }
+
+    @Override
+    protected boolean canHitEntity(final Entity entity) {
+        if (!super.canHitEntity(entity)) {
+            return false;
+        }
+        if (entity instanceof ExplosionShrapnelEntity || entity instanceof FallingBlockEntity || entity instanceof ItemEntity) {
+            return false;
+        }
+        if (entity == getOwner()) {
+            return false;
+        }
+        return !entity.getType().toShortString().contains("tnt");
     }
 
     @Override

@@ -92,6 +92,8 @@ public final class ShahedClientHandler {
     private static boolean localPlayerStateCaptured;
     private static boolean localPlayerInvisible;
     private static boolean localPlayerSilent;
+    private static float monitorCameraShakePitch;
+    private static float monitorCameraShakeYaw;
 
     private ShahedClientHandler() {
     }
@@ -211,10 +213,21 @@ public final class ShahedClientHandler {
         ));
     }
 
+    public static void setMonitorCameraShake(final float pitch, final float yaw) {
+        monitorCameraShakePitch = pitch;
+        monitorCameraShakeYaw = yaw;
+    }
+
+    public static void clearMonitorCameraShake() {
+        monitorCameraShakePitch = 0.0F;
+        monitorCameraShakeYaw = 0.0F;
+    }
+
     private static void onComputeCameraAngles(final ViewportEvent.ComputeCameraAngles event) {
         if (event.getCamera().getEntity() instanceof ShahedDroneEntity drone) {
+            event.setYaw(Mth.wrapDegrees(event.getYaw() + monitorCameraShakeYaw));
             event.setRoll(drone.getVisualRoll((float) event.getPartialTick()));
-            event.setPitch(drone.getVisualPitch((float) event.getPartialTick()));
+            event.setPitch(drone.getVisualPitch((float) event.getPartialTick()) + monitorCameraShakePitch);
         }
     }
 
@@ -225,6 +238,9 @@ public final class ShahedClientHandler {
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft == null) {
             return;
+        }
+        if (!(minecraft.screen instanceof ShahedMonitorScreen)) {
+            clearMonitorCameraShake();
         }
         if (minecraft.level == null || minecraft.isPaused()) {
             restoreLocalPlayerState();

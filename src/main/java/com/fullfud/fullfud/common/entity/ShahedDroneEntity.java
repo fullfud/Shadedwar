@@ -630,10 +630,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         resolveCollisionVelocity();
 
         final float displayScale = (float) (scale > 0.0D ? (1.0D / scale) : 1.0D);
+        final double actualVerticalSpeed = dt > 1.0E-6D
+            ? (this.getY() - lastFlightStart.y) / dt
+            : linearVelocity.y;
         telemetry = new FlightTelemetry(
             (float) speed * displayScale,
             (float) Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z) * displayScale,
-            (float) linearVelocity.y,
+            (float) actualVerticalSpeed,
             (float) Math.toDegrees(aoa),
             0.0F,
             throttle,
@@ -1635,6 +1638,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         detonating = true;
         setPos(impactOrigin.x, impactOrigin.y, impactOrigin.z);
+        final Vec3 explosionDirection = resolveExplosionDirection();
         final ServerPlayer controller = getControllingPlayer();
         if (controller != null) {
             forceReturnCamera(controller);
@@ -1642,11 +1646,11 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         } else {
             endRemoteControl(null);
         }
-        spawnTntEffect(controller);
+        spawnTntEffect(controller, explosionDirection);
         discard();
     }
 
-    private void spawnTntEffect(@javax.annotation.Nullable final ServerPlayer controller) {
+    private void spawnTntEffect(@javax.annotation.Nullable final ServerPlayer controller, @javax.annotation.Nullable final Vec3 explosionDirection) {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
@@ -1657,8 +1661,24 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         DroneExplosionLimiter.markNoEntityDamage(tnt);
         serverLevel.addFreshEntity(tnt);
         serverLevel.explode(tnt, getX(), getY(), getZ(), SHAHED_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
-        DroneExplosionEffects.afterShahedExplosion(serverLevel, tnt, controller);
+        DroneExplosionEffects.afterShahedExplosion(serverLevel, tnt, controller, explosionDirection);
         tnt.discard();
+    }
+
+    private Vec3 resolveExplosionDirection() {
+        syncQuaternionFromBodyAngles();
+        final Vec3 forward = directionFromQuaternion(0.0F, 0.0F, 1.0F);
+        if (forward.lengthSqr() > 1.0E-6D) {
+            return forward.normalize();
+        }
+        final Vec3 look = this.getLookAngle();
+        if (look.lengthSqr() > 1.0E-6D) {
+            return look.normalize();
+        }
+        if (linearVelocity.lengthSqr() > 1.0E-6D) {
+            return linearVelocity.normalize();
+        }
+        return new Vec3(0.0D, 0.0D, 1.0D);
     }
 
     private Vec3 resolveEntityImpactOrigin(final Vec3 start, final Vec3 end, final Entity target) {

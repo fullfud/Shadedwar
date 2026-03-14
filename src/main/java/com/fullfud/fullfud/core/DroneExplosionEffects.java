@@ -58,6 +58,15 @@ public final class DroneExplosionEffects {
         applyExplosionEffects(level, source, attacker, SHAHED_PROFILE, null);
     }
 
+    public static void afterShahedExplosion(
+        final ServerLevel level,
+        final Entity source,
+        @Nullable final LivingEntity attacker,
+        @Nullable final Vec3 facingDirection
+    ) {
+        applyExplosionEffects(level, source, attacker, SHAHED_PROFILE, facingDirection);
+    }
+
     public static void applyDirectImpactVehicleDamage(
         final ServerLevel level,
         final Entity source,
@@ -184,7 +193,7 @@ public final class DroneExplosionEffects {
         for (int i = 0; i < spawnCount; i++) {
             final Vec3 direction = switch (profile.shrapnelPattern()) {
                 case FORWARD_CONE -> forwardDirection != null
-                    ? randomDirectionInCone(forwardDirection, profile.coneHalfAngleDeg(), level)
+                    ? resolveForwardConeDirection(forwardDirection, profile.coneHalfAngleDeg(), level)
                     : randomSphericalDirection(level);
                 case SPHERICAL -> randomSphericalDirection(level);
                 case HORIZONTAL_RING -> randomHorizontalDirection(level);
@@ -239,6 +248,18 @@ public final class DroneExplosionEffects {
 
         final Vec3 lateral = basisRight.scale(Math.cos(azimuth)).add(basisUp.scale(Math.sin(azimuth)));
         return normalizedForward.scale(cosTheta).add(lateral.scale(sinTheta)).normalize();
+    }
+
+    private static Vec3 resolveForwardConeDirection(final Vec3 forward, final float coneHalfAngleDeg, final ServerLevel level) {
+        final Vec3 normalizedForward = forward.normalize();
+        if (normalizedForward.y < -0.9D) {
+            final Vec3 horizontalBias = new Vec3(normalizedForward.x, 0.0D, normalizedForward.z);
+            if (horizontalBias.lengthSqr() > 1.0E-6D) {
+                return randomDirectionInCone(horizontalBias.normalize().add(0.0D, -0.18D, 0.0D).normalize(), coneHalfAngleDeg, level);
+            }
+            return randomHorizontalDirection(level);
+        }
+        return randomDirectionInCone(normalizedForward, coneHalfAngleDeg, level);
     }
 
     private static void playLayeredDistanceSounds(final ServerLevel level, final Vec3 origin) {

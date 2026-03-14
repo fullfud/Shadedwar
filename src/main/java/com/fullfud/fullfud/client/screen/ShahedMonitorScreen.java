@@ -112,10 +112,17 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     
     private void applyCameraShake(ShahedStatusPacket status) {
         if (!FullfudClientConfig.CLIENT.shahedMonitorCameraShakeEnabled.get()) {
+            ShahedClientHandler.clearMonitorCameraShake();
             return;
         }
-        if (minecraft == null || minecraft.cameraEntity == null) return;
-        if (!(minecraft.cameraEntity instanceof ShahedDroneEntity drone)) return;
+        if (minecraft == null || minecraft.cameraEntity == null) {
+            ShahedClientHandler.clearMonitorCameraShake();
+            return;
+        }
+        if (!(minecraft.cameraEntity instanceof ShahedDroneEntity)) {
+            ShahedClientHandler.clearMonitorCameraShake();
+            return;
+        }
 
         float thrust = status.thrust();
         float vSpeed = status.verticalSpeed();
@@ -137,11 +144,9 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         if (totalShake > 0.01F) {
             float rx = (float) ((Math.random() - 0.5D) * totalShake);
             float ry = (float) ((Math.random() - 0.5D) * totalShake);
-
-            drone.setXRot(drone.getXRot() + rx);
-            drone.setYRot(drone.getYRot() + ry);
-            drone.xRotO += rx;
-            drone.yRotO += ry;
+            ShahedClientHandler.setMonitorCameraShake(rx, ry);
+        } else {
+            ShahedClientHandler.clearMonitorCameraShake();
         }
     }
 
@@ -151,6 +156,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         resetKeyStates();
         resetMouseLookState();
         restoreControlCursor();
+        ShahedClientHandler.clearMonitorCameraShake();
         requestCameraRelease();
         restoreCamera();
         if (noiseTexture != null) {
@@ -162,6 +168,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
     @Override
     public void onClose() {
         super.onClose();
+        ShahedClientHandler.clearMonitorCameraShake();
         requestCameraRelease();
         restoreCamera();
         resetKeyStates();
@@ -540,27 +547,23 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             return MouseLookDelta.ZERO;
         }
 
-        final double centerX = minecraft.getWindow().getWidth() * 0.5D;
-        final double centerY = minecraft.getWindow().getHeight() * 0.5D;
+        final double currentX = minecraft.mouseHandler.xpos();
+        final double currentY = minecraft.mouseHandler.ypos();
         if (!mouseInitialized) {
             mouseInitialized = true;
-            lastMouseX = centerX;
-            lastMouseY = centerY;
-            GLFW.glfwSetCursorPos(minecraft.getWindow().getWindow(), centerX, centerY);
+            lastMouseX = currentX;
+            lastMouseY = currentY;
             return MouseLookDelta.ZERO;
         }
 
-        final double currentX = minecraft.mouseHandler.xpos();
-        final double currentY = minecraft.mouseHandler.ypos();
         final float vanillaSensitivity = (float) (double) minecraft.options.sensitivity().get();
         final float legacyMultiplier = (float) (FullfudClientConfig.CLIENT.fpvCameraMouseSensitivity.get() / 0.015D);
         final float mouseScale = vanillaSensitivity * 0.007F * legacyMultiplier;
         final float mousePitchDelta = (float) (currentY - lastMouseY) * mouseScale;
         final float mouseRollDelta = (float) (currentX - lastMouseX) * mouseScale;
 
-        GLFW.glfwSetCursorPos(minecraft.getWindow().getWindow(), centerX, centerY);
-        lastMouseX = centerX;
-        lastMouseY = centerY;
+        lastMouseX = currentX;
+        lastMouseY = currentY;
         return new MouseLookDelta(mousePitchDelta, mouseRollDelta);
     }
 
@@ -576,7 +579,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         }
         final long window = minecraft.getWindow().getWindow();
         previousCursorMode = GLFW.glfwGetInputMode(window, GLFW.GLFW_CURSOR);
-        GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_HIDDEN);
+        GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
         final double centerX = minecraft.getWindow().getWidth() * 0.5D;
         final double centerY = minecraft.getWindow().getHeight() * 0.5D;
         GLFW.glfwSetCursorPos(window, centerX, centerY);

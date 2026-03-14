@@ -1019,17 +1019,17 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private Vec3 resolveExplosionDirection() {
+        final Vector3f forward = dronePhysics.getForward();
+        final Vec3 forwardVec = new Vec3(forward.x, forward.y, forward.z);
+        if (forwardVec.lengthSqr() > 1.0E-6D) {
+            return forwardVec.normalize();
+        }
         if (linearVelocity.lengthSqr() > 1.0E-6D) {
             return linearVelocity.normalize();
         }
         final Vec3 motion = getDeltaMovement();
         if (motion.lengthSqr() > 1.0E-6D) {
             return motion.normalize();
-        }
-        final Vector3f forward = dronePhysics.getForward();
-        final Vec3 forwardVec = new Vec3(forward.x, forward.y, forward.z);
-        if (forwardVec.lengthSqr() > 1.0E-6D) {
-            return forwardVec.normalize();
         }
         return new Vec3(0.0D, 0.0D, 1.0D);
     }
