@@ -465,7 +465,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 final PlayerDecoyEntity decoy = PlayerDecoyManager.getDecoyByDrone(this.getUUID());
                 if (decoy != null && entity == decoy) continue;
                 if (entity instanceof ServerPlayer sp && entityData.get(DATA_CONTROLLER).map(sp.getUUID()::equals).orElse(false)) continue;
-                if (getDronePreset().explodesOnDestroy && level() instanceof ServerLevel serverLevel) {
+                if (isExplosivePreset() && level() instanceof ServerLevel serverLevel) {
                     DroneExplosionEffects.applyDirectImpactVehicleDamage(serverLevel, this, controller, entity);
                 }
                 destroyOnImpact(resolveEntityImpactOrigin(moveStart, moveEnd, entity));
@@ -932,11 +932,15 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     private void destroyOnImpact(final Vec3 impactOrigin) {
         setPos(impactOrigin.x, impactOrigin.y, impactOrigin.z);
-        if (getDronePreset().explodesOnDestroy) {
+        if (isExplosivePreset()) {
             explode();
         } else {
             crashAndDrop();
         }
+    }
+
+    private boolean isExplosivePreset() {
+        return getDronePreset() == DronePreset.STRIKE_7INCH;
     }
 
     private void prepareForDestruction() {
