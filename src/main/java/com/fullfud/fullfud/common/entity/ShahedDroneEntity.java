@@ -138,6 +138,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final int GHOST_BROADCAST_INTERVAL_TICKS = 2;
     private static final double GHOST_BROADCAST_RANGE_BLOCKS = 10000.0D;
     private static final int CONTROL_TIMEOUT_TICKS = 20;
+    private static final double REMOTE_PROTECTION_RADIUS = 24.0D;
+    private static final float FORCE_RELEASE_FAILSAFE_THRUST = 0.60F;
     private static final double TICK_SECONDS = 1.0D / 20.0D;
     private static final double BASE_MASS_KG = 210.0D;
     private static final double FUEL_CAPACITY_KG = 45.0D;
@@ -1650,6 +1652,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         final PrimedTnt tnt = new PrimedTnt(serverLevel, getX(), getY(), getZ(), controller);
         tnt.setFuse(0);
+        RemotePlayerProtection.markHazard(tnt, this);
         DroneExplosionLimiter.markNoBlockDamage(tnt);
         DroneExplosionLimiter.markNoEntityDamage(tnt);
         serverLevel.addFreshEntity(tnt);
@@ -1731,7 +1734,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         controllingPlayer = player.getUUID();
         menuGraceTicks = 40;
         writeRemoteTag(player);
-        RemotePlayerProtection.touch(player);
+        RemotePlayerProtection.touch(player, this, REMOTE_PROTECTION_RADIUS);
         PlayerDecoyManager.createDecoy(player, this);
         syncRemoteController(player);
         syncViewCenter(player);
@@ -1817,8 +1820,30 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
         PlayerDecoyManager.removeDecoy(playerId);
+        applyForcedReleaseFailsafe();
         controllingPlayer = null;
         controlSession = null;
+    }
+
+    private void applyForcedReleaseFailsafe() {
+        controlForward = 0.0F;
+        controlStrafe = 0.0F;
+        controlVertical = 0.0F;
+        inputMousePitchDelta = 0.0F;
+        inputMouseRollDelta = 0.0F;
+        controlTimeout = 0;
+        menuGraceTicks = 0;
+        rollRate = 0.0D;
+        pitchRate = 0.0D;
+        if (isOnLauncher() && !remoteInitialized && !armed) {
+            setThrust(0.0F);
+            engineOutput = 0.0D;
+            linearVelocity = Vec3.ZERO;
+            setDeltaMovement(Vec3.ZERO);
+            return;
+        }
+        setThrust(FORCE_RELEASE_FAILSAFE_THRUST);
+        engineOutput = Math.min(engineOutput, FORCE_RELEASE_FAILSAFE_THRUST);
     }
 
     public static void forceReleaseFromPersistentData(final MinecraftServer server, final UUID playerId, final CompoundTag tag) {
@@ -1919,7 +1944,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         player.setSilent(true);
         player.noPhysics = true;
         player.hurtMarked = true;
-        RemotePlayerProtection.touch(player);
+        RemotePlayerProtection.touch(player, this, REMOTE_PROTECTION_RADIUS);
         syncRemotePlayerVisibility(player, true);
         syncRemotePlayerEquipment(player, true);
         if (this.tickCount % 20 == 0) {

@@ -116,6 +116,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final int CONTROL_TIMEOUT_TICKS = 40;
     private static final int SIGNAL_CALC_INTERVAL_TICKS = 2;
     private static final int MAX_OCCLUSION_STEPS = 256;
+    private static final double REMOTE_PROTECTION_RADIUS = 16.0D;
     
     private static final String TAG_ARMED = "Armed";
     private static final String TAG_THRUST = "Thrust";
@@ -990,6 +991,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
         final PrimedTnt tnt = new PrimedTnt(serverLevel, getX(), getY(), getZ(), controller);
         tnt.setFuse(0);
+        RemotePlayerProtection.markHazard(tnt, this);
         DroneExplosionLimiter.markNoBlockDamage(tnt);
         DroneExplosionLimiter.markNoEntityDamage(tnt);
         serverLevel.addFreshEntity(tnt);
@@ -1184,7 +1186,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
         session = new ControlSession(player.level().dimension(), player.position(), player.getYRot(), player.getXRot(), player.gameMode.getGameModeForPlayer());
         writeRemoteTag(player);
-        RemotePlayerProtection.touch(player);
+        RemotePlayerProtection.touch(player, this, REMOTE_PROTECTION_RADIUS);
         PlayerDecoyManager.createDecoy(player, this);
         syncRemoteController(player);
         lastSentViewCenter = null;
@@ -1301,7 +1303,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         player.setSilent(true);
         player.noPhysics = true;
         player.hurtMarked = true;
-        RemotePlayerProtection.touch(player);
+        RemotePlayerProtection.touch(player, this, REMOTE_PROTECTION_RADIUS);
         syncRemotePlayerVisibility(player, true);
         syncRemotePlayerEquipment(player, true);
         if (this.tickCount % 20 == 0) {

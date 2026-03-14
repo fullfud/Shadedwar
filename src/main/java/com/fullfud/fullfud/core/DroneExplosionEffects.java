@@ -180,7 +180,8 @@ public final class DroneExplosionEffects {
         final Vec3 forwardDirection = impactDirection != null && impactDirection.lengthSqr() > 1.0E-6D
             ? impactDirection.normalize()
             : null;
-        for (int i = 0; i < profile.shrapnelCount(); i++) {
+        final int spawnCount = ExplosionShrapnelEntity.allowedSpawnCount(level, profile.shrapnelCount());
+        for (int i = 0; i < spawnCount; i++) {
             final Vec3 direction = switch (profile.shrapnelPattern()) {
                 case FORWARD_CONE -> forwardDirection != null
                     ? randomDirectionInCone(forwardDirection, profile.coneHalfAngleDeg(), level)
@@ -197,6 +198,7 @@ public final class DroneExplosionEffects {
                 level
             );
             shrapnel.setOwner(attacker != null ? attacker : source);
+            RemotePlayerProtection.copyHazardTag(shrapnel, source);
             shrapnel.setDamage(profile.shrapnelDamage());
             shrapnel.setMaxRange(profile.shrapnelRange());
             shrapnel.setStartPos(origin);
