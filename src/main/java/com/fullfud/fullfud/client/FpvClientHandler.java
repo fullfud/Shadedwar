@@ -24,6 +24,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.client.renderer.PostChain;
 import net.minecraft.client.renderer.PostPass;
+import net.minecraft.client.renderer.entity.ThrownItemRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.Style;
@@ -147,6 +148,7 @@ public final class FpvClientHandler {
     public static void onRegisterRenderers(final EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(FullfudRegistries.FPV_DRONE_ENTITY.get(), FpvDroneRenderer::new);
         event.registerEntityRenderer(FullfudRegistries.PLAYER_DECOY_ENTITY.get(), PlayerDecoyRenderer::new);
+        event.registerEntityRenderer(FullfudRegistries.EXPLOSION_SHRAPNEL_ENTITY.get(), context -> new ThrownItemRenderer<>(context, 0.5F, false));
     }
 
     public static void onRegisterKeyMappings(final RegisterKeyMappingsEvent event) {

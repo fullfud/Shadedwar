@@ -3,6 +3,7 @@ package com.fullfud.fullfud.common.entity;
 import com.fullfud.fullfud.common.item.MonitorItem;
 import com.mojang.datafixers.util.Pair;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.DroneExplosionEffects;
 import com.fullfud.fullfud.core.DroneExplosionLimiter;
 import com.fullfud.fullfud.core.PlayerDecoyManager;
 import com.fullfud.fullfud.core.data.ShahedLinkData;
@@ -169,6 +170,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private float controlStrafe;
     private float controlVertical;
     private Vec3 linearVelocity = Vec3.ZERO;
+    private Vec3 lastFlightStart = Vec3.ZERO;
     private double crippledHorizontalTargetSpeed = -1.0D;
     private double damageSmokeAccumulator;
     private int projectileHitCount;
@@ -296,6 +298,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             }
             this.setXRot((float) bodyPitch);
             updateControlTimeout();
+            if (!level().isClientSide()) {
+                lastFlightStart = position();
+            }
             updateFlight();
             
             if (!level().isClientSide()) {
@@ -328,9 +333,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
         if (!level().isClientSide()) {
             updateLaunchState();
+            final ServerPlayer cp = getControllingPlayer();
             if (armed) {
                 if (detectImpact()) {
-                    detonate();
+                    detonate(position());
                     return;
                 }
                 List<Entity> collisions = level().getEntities(this, getBoundingBox().inflate(0.3D), e -> !e.isSpectator() && e.isPickable());
@@ -338,11 +344,13 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                     final PlayerDecoyEntity decoy = PlayerDecoyManager.getDecoyByDrone(this.getUUID());
                     if (decoy != null && entity == decoy) continue;
                     if (controllingPlayer != null && entity instanceof ServerPlayer sp && controllingPlayer.equals(sp.getUUID())) continue;
-                    detonate();
+                    if (level() instanceof ServerLevel serverLevel) {
+                        DroneExplosionEffects.applyDirectImpactVehicleDamage(serverLevel, this, cp, entity);
+                    }
+                    detonate(resolveEntityImpactOrigin(lastFlightStart, position(), entity));
                     return;
                 }
             }
-            final ServerPlayer cp = getControllingPlayer();
             if (isSignalLostFor(cp)) {
                 releaseCameraFor(cp);
             }
@@ -1236,17 +1244,17 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     public boolean hurt(final DamageSource source, final float amount) {
         if (source.getDirectEntity() instanceof Projectile) {
             if (!level().isClientSide()) {
-                handleProjectileImpact();
+                handleProjectileImpact(source.getDirectEntity());
             }
             return true;
         }
         return super.hurt(source, amount);
     }
 
-    private void handleProjectileImpact() {
+    private void handleProjectileImpact(@javax.annotation.Nullable final Entity directEntity) {
         projectileHitCount++;
         if (projectileHitCount >= 2) {
-            detonate();
+            detonate(directEntity != null ? directEntity.position() : position());
             return;
         }
         final double horizontalSpeed = Math.sqrt(linearVelocity.x * linearVelocity.x + linearVelocity.z * linearVelocity.z);
@@ -1562,6 +1570,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     }
 
     private void detonate() {
+        detonate(position());
+    }
+
+    private void detonate(final Vec3 impactOrigin) {
         if (level().isClientSide()) {
             return;
         }
@@ -1569,6 +1581,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
         detonating = true;
+        setPos(impactOrigin.x, impactOrigin.y, impactOrigin.z);
         final ServerPlayer controller = getControllingPlayer();
         if (controller != null) {
             forceReturnCamera(controller);
@@ -1576,42 +1589,29 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         } else {
             endRemoteControl(null);
         }
-        spawnTntEffect();
-        applyBlastDamage();
+        spawnTntEffect(controller);
         discard();
     }
 
-    private void spawnTntEffect() {
+    private void spawnTntEffect(@javax.annotation.Nullable final ServerPlayer controller) {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
-        final ServerPlayer controller = getControllingPlayer();
         final PrimedTnt tnt = new PrimedTnt(serverLevel, getX(), getY(), getZ(), controller);
         tnt.setFuse(0);
         DroneExplosionLimiter.markNoBlockDamage(tnt);
+        DroneExplosionLimiter.markNoEntityDamage(tnt);
         serverLevel.addFreshEntity(tnt);
         serverLevel.explode(tnt, getX(), getY(), getZ(), SHAHED_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
+        DroneExplosionEffects.afterShahedExplosion(serverLevel, tnt, controller);
         tnt.discard();
     }
 
-    private void applyBlastDamage() {
-        if (!(level() instanceof ServerLevel serverLevel)) {
-            return;
+    private Vec3 resolveEntityImpactOrigin(final Vec3 start, final Vec3 end, final Entity target) {
+        if (target == null || start.distanceToSqr(end) < 1.0E-6D) {
+            return end;
         }
-        final double radius = 20.0D;
-        final AABB area = new AABB(getX() - radius, getY() - 6.0D, getZ() - radius, getX() + radius, getY() + 6.0D, getZ() + radius);
-        final var damageSource = serverLevel.damageSources().explosion(this, this);
-        for (LivingEntity target : serverLevel.getEntitiesOfClass(LivingEntity.class, area)) {
-            if (target.isInvulnerableTo(damageSource)) {
-                continue;
-            }
-            final double distance = Math.sqrt(target.distanceToSqr(this));
-            if (distance <= 15.0D) {
-                target.hurt(damageSource, 100.0F);
-            } else if (distance <= 20.0D) {
-                target.hurt(damageSource, 50.0F);
-            }
-        }
+        return target.getBoundingBox().inflate(0.05D).clip(start, end).orElse(end);
     }
 
     public void initializePlacement(final double yPosition) {

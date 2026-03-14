@@ -2,6 +2,7 @@ package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.FullfudMod;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
+import com.fullfud.fullfud.common.entity.ExplosionShrapnelEntity;
 import com.fullfud.fullfud.common.entity.PlayerDecoyEntity;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedColor;
@@ -134,6 +135,15 @@ public final class FullfudRegistries {
             .build(resource("fpv_drone").toString())
     );
 
+    public static final RegistryObject<EntityType<ExplosionShrapnelEntity>> EXPLOSION_SHRAPNEL_ENTITY = ENTITY_TYPES.register("explosion_shrapnel", () ->
+        EntityType.Builder.<ExplosionShrapnelEntity>of(ExplosionShrapnelEntity::new, MobCategory.MISC)
+            .sized(0.1F, 0.1F)
+            .clientTrackingRange(160)
+            .updateInterval(1)
+            .setShouldReceiveVelocityUpdates(true)
+            .build(resource("explosion_shrapnel").toString())
+    );
+
     public static final RegistryObject<EntityType<PlayerDecoyEntity>> PLAYER_DECOY_ENTITY = ENTITY_TYPES.register("player_decoy", () ->
         EntityType.Builder.<PlayerDecoyEntity>of(PlayerDecoyEntity::new, MobCategory.MISC)
             .sized(0.6F, 1.8F)
@@ -181,6 +191,22 @@ public final class FullfudRegistries {
     );
     public static final RegistryObject<SoundEvent> FPV_ENGINE_STOP = SOUND_EVENTS.register("fpv.engine_stop",
         () -> SoundEvent.createVariableRangeEvent(resource("fpv.engine_stop"))
+    );
+
+    public static final RegistryObject<SoundEvent> EXPLOSION_CLOSE = SOUND_EVENTS.register("explosion_close",
+        () -> SoundEvent.createVariableRangeEvent(resource("explosion_close"))
+    );
+    public static final RegistryObject<SoundEvent> EXPLOSION_MEDIUM = SOUND_EVENTS.register("explosion_medium",
+        () -> SoundEvent.createVariableRangeEvent(resource("explosion_medium"))
+    );
+    public static final RegistryObject<SoundEvent> EXPLOSION_FAR = SOUND_EVENTS.register("explosion_far",
+        () -> SoundEvent.createVariableRangeEvent(resource("explosion_far"))
+    );
+    public static final RegistryObject<SoundEvent> EXPLOSION_VERYFAR = SOUND_EVENTS.register("explosion_veryfar",
+        () -> SoundEvent.createVariableRangeEvent(resource("explosion_veryfar"))
+    );
+    public static final RegistryObject<SoundEvent> SHRAPNEL_HIT = SOUND_EVENTS.register("shrapnel_hit",
+        () -> SoundEvent.createVariableRangeEvent(resource("shrapnel_hit"))
     );
 
     public static void register(final IEventBus modEventBus) {

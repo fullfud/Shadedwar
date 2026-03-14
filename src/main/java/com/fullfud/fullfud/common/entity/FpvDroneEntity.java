@@ -6,6 +6,7 @@ import com.fullfud.fullfud.common.item.FpvControllerItem;
 import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.mojang.datafixers.util.Pair;
 import com.fullfud.fullfud.core.FullfudRegistries;
+import com.fullfud.fullfud.core.DroneExplosionEffects;
 import com.fullfud.fullfud.core.DroneExplosionLimiter;
 import com.fullfud.fullfud.core.PlayerDecoyManager;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
@@ -439,7 +440,9 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         broadcastEngineAudio();
         
         Vec3 preMoveVelocity = getDeltaMovement();
+        Vec3 moveStart = position();
         move(MoverType.SELF, preMoveVelocity);
+        Vec3 moveEnd = position();
 
         if (isArmed()) {
             if (horizontalCollision || verticalCollision) {
@@ -447,7 +450,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 double crashThreshold = 10.0D; // blocks/sec — above this, drone explodes
 
                 if (speed > crashThreshold) {
-                    destroyOnImpact();
+                    destroyOnImpact(resolveBlockImpactOrigin(moveStart, moveEnd));
                     return;
                 }
 
@@ -462,7 +465,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 final PlayerDecoyEntity decoy = PlayerDecoyManager.getDecoyByDrone(this.getUUID());
                 if (decoy != null && entity == decoy) continue;
                 if (entity instanceof ServerPlayer sp && entityData.get(DATA_CONTROLLER).map(sp.getUUID()::equals).orElse(false)) continue;
-                destroyOnImpact();
+                if (getDronePreset().explodesOnDestroy && level() instanceof ServerLevel serverLevel) {
+                    DroneExplosionEffects.applyDirectImpactVehicleDamage(serverLevel, this, controller, entity);
+                }
+                destroyOnImpact(resolveEntityImpactOrigin(moveStart, moveEnd, entity));
                 return;
             }
         }
@@ -894,7 +900,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return false;
         }
         if (isArmed() || source.getDirectEntity() instanceof net.minecraft.world.entity.projectile.Projectile) {
-            destroyOnImpact();
+            final Entity directEntity = source.getDirectEntity();
+            destroyOnImpact(directEntity != null ? directEntity.position() : position());
             return true;
         }
         dropAsItem();
@@ -920,6 +927,11 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     }
 
     private void destroyOnImpact() {
+        destroyOnImpact(position());
+    }
+
+    private void destroyOnImpact(final Vec3 impactOrigin) {
+        setPos(impactOrigin.x, impactOrigin.y, impactOrigin.z);
         if (getDronePreset().explodesOnDestroy) {
             explode();
         } else {
@@ -955,22 +967,42 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (detonating || isRemoved()) {
             return;
         }
+        final ServerPlayer controller = getController();
         prepareForDestruction();
-        spawnTntEffect();
+        spawnTntEffect(controller);
         discard();
     }
 
-    private void spawnTntEffect() {
+    private void spawnTntEffect(@javax.annotation.Nullable final ServerPlayer controller) {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
-        final ServerPlayer controller = getController();
         final PrimedTnt tnt = new PrimedTnt(serverLevel, getX(), getY(), getZ(), controller);
         tnt.setFuse(0);
         DroneExplosionLimiter.markNoBlockDamage(tnt);
+        DroneExplosionLimiter.markNoEntityDamage(tnt);
         serverLevel.addFreshEntity(tnt);
         serverLevel.explode(tnt, getX(), getY(), getZ(), FPV_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
+        DroneExplosionEffects.afterFpvExplosion(serverLevel, tnt, controller);
         tnt.discard();
+    }
+
+    private Vec3 resolveBlockImpactOrigin(final Vec3 start, final Vec3 end) {
+        if (start.distanceToSqr(end) < 1.0E-6D) {
+            return end;
+        }
+        final HitResult hitResult = level().clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
+        if (hitResult.getType() == HitResult.Type.BLOCK) {
+            return hitResult.getLocation();
+        }
+        return end;
+    }
+
+    private Vec3 resolveEntityImpactOrigin(final Vec3 start, final Vec3 end, final Entity target) {
+        if (target == null || start.distanceToSqr(end) < 1.0E-6D) {
+            return end;
+        }
+        return target.getBoundingBox().inflate(0.05D).clip(start, end).orElse(end);
     }
 
     private void dropAsItem() {

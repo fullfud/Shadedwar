@@ -40,5 +40,49 @@
         "attenuation_distance": 200
       }
     ]
+  },
+  "explosion_close": {
+    "sounds": [
+      { "name": "fullfud:explosion_close_1" },
+      { "name": "fullfud:explosion_close_2" },
+      { "name": "fullfud:explosion_close_3" },
+      { "name": "fullfud:explosion_close_4" }
+    ]
+  },
+  "explosion_medium": {
+    "sounds": [
+      { "name": "fullfud:explosion_medium_distance_1" },
+      { "name": "fullfud:explosion_medium_distance_2" },
+      { "name": "fullfud:explosion_medium_distance_3" },
+      { "name": "fullfud:explosion_medium_distance_4" }
+    ]
+  },
+  "explosion_far": {
+    "sounds": [
+      { "name": "fullfud:explosion_far_distance_1" },
+      { "name": "fullfud:explosion_far_distance_2" },
+      { "name": "fullfud:explosion_far_distance_3" },
+      { "name": "fullfud:explosion_far_distance_4" }
+    ]
+  },
+  "explosion_veryfar": {
+    "sounds": [
+      { "name": "fullfud:explosion_veryfar_distance_1" },
+      { "name": "fullfud:explosion_veryfar_distance_2" },
+      { "name": "fullfud:explosion_veryfar_distance_3" },
+      { "name": "fullfud:explosion_veryfar_distance_4" }
+    ]
+  },
+  "shrapnel_hit": {
+    "sounds": [
+      { "name": "fullfud:shrapnel_1" },
+      { "name": "fullfud:shrapnel_2" },
+      { "name": "fullfud:shrapnel_3" },
+      { "name": "fullfud:shrapnel_4" },
+      { "name": "fullfud:shrapnel_5" },
+      { "name": "fullfud:shrapnel_6" },
+      { "name": "fullfud:shrapnel_7" },
+      { "name": "fullfud:shrapnel_8" }
+    ]
   }
 }
