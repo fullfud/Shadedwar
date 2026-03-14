@@ -1,6 +1,7 @@
 package com.fullfud.fullfud.core;
 
 import com.fullfud.fullfud.common.entity.ExplosionShrapnelEntity;
+import com.fullfud.fullfud.common.entity.drone.DronePreset;
 import net.minecraft.core.Holder;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
 import net.minecraft.server.level.ServerLevel;
@@ -27,8 +28,9 @@ public final class DroneExplosionEffects {
     private static final float SBW_VEHICLE_EXPLOSION_DAMAGE = 80.0F;
     private static final float SBW_VEHICLE_EXPLOSION_RADIUS = 5.0F;
 
-    private static final BlastProfile FPV_PROFILE = new BlastProfile(180, 18.0F, 25.0D, 4.0F, 12.0F, 4.2F);
-    private static final BlastProfile SHAHED_PROFILE = new BlastProfile(250, 15.0F, 200.0D, 10.0F, 50.0F, 3.8F);
+    private static final BlastProfile FPV_PROFILE = new BlastProfile(180, 18.0F, 25.0D, 4.0F, 12.0F, 4.2F, ShrapnelPattern.HORIZONTAL_RING, 0.0F);
+    private static final BlastProfile FPV_STRIKE_PROFILE = new BlastProfile(180, 18.0F, 25.0D, 4.0F, 12.0F, 4.2F, ShrapnelPattern.FORWARD_CONE, 16.0F);
+    private static final BlastProfile SHAHED_PROFILE = new BlastProfile(400, 15.0F, 200.0D, 10.0F, 50.0F, 3.8F, ShrapnelPattern.SPHERICAL, 0.0F);
 
     private static final float DISTANT_CLOSE_RADIUS = 24.0F;
     private static final float DISTANT_MEDIUM_RADIUS = 80.0F;
@@ -38,11 +40,22 @@ public final class DroneExplosionEffects {
     }
 
     public static void afterFpvExplosion(final ServerLevel level, final Entity source, @Nullable final LivingEntity attacker) {
-        applyExplosionEffects(level, source, attacker, FPV_PROFILE);
+        applyExplosionEffects(level, source, attacker, FPV_PROFILE, null);
+    }
+
+    public static void afterFpvExplosion(
+        final ServerLevel level,
+        final Entity source,
+        @Nullable final LivingEntity attacker,
+        final DronePreset preset,
+        @Nullable final Vec3 impactDirection
+    ) {
+        final BlastProfile profile = preset == DronePreset.STRIKE_7INCH ? FPV_STRIKE_PROFILE : FPV_PROFILE;
+        applyExplosionEffects(level, source, attacker, profile, impactDirection);
     }
 
     public static void afterShahedExplosion(final ServerLevel level, final Entity source, @Nullable final LivingEntity attacker) {
-        applyExplosionEffects(level, source, attacker, SHAHED_PROFILE);
+        applyExplosionEffects(level, source, attacker, SHAHED_PROFILE, null);
     }
 
     public static void applyDirectImpactVehicleDamage(
@@ -62,13 +75,14 @@ public final class DroneExplosionEffects {
         final ServerLevel level,
         final Entity source,
         @Nullable final LivingEntity attacker,
-        final BlastProfile profile
+        final BlastProfile profile,
+        @Nullable final Vec3 impactDirection
     ) {
         final Vec3 origin = source.position();
         playLayeredDistanceSounds(level, origin);
         applyWarbornBlastDamage(level, source, attacker, origin, profile);
         applySuperbWarfareExplosionDamage(level, source, attacker, origin);
-        spawnShrapnel(level, source, attacker, origin, profile);
+        spawnShrapnel(level, source, attacker, origin, profile, impactDirection);
     }
 
     private static void applyWarbornBlastDamage(
@@ -160,14 +174,20 @@ public final class DroneExplosionEffects {
         final Entity source,
         @Nullable final LivingEntity attacker,
         final Vec3 origin,
-        final BlastProfile profile
+        final BlastProfile profile,
+        @Nullable final Vec3 impactDirection
     ) {
+        final Vec3 forwardDirection = impactDirection != null && impactDirection.lengthSqr() > 1.0E-6D
+            ? impactDirection.normalize()
+            : null;
         for (int i = 0; i < profile.shrapnelCount(); i++) {
-            final double theta = Math.PI * 2.0D * level.random.nextDouble();
-            final double horizontalX = Math.cos(theta);
-            final double horizontalZ = Math.sin(theta);
-            final double vertical = (level.random.nextDouble() - 0.5D) * 0.7D;
-            final Vec3 direction = new Vec3(horizontalX, vertical, horizontalZ).normalize();
+            final Vec3 direction = switch (profile.shrapnelPattern()) {
+                case FORWARD_CONE -> forwardDirection != null
+                    ? randomDirectionInCone(forwardDirection, profile.coneHalfAngleDeg(), level)
+                    : randomSphericalDirection(level);
+                case SPHERICAL -> randomSphericalDirection(level);
+                case HORIZONTAL_RING -> randomHorizontalDirection(level);
+            };
 
             final ExplosionShrapnelEntity shrapnel = new ExplosionShrapnelEntity(
                 FullfudRegistries.EXPLOSION_SHRAPNEL_ENTITY.get(),
@@ -183,6 +203,40 @@ public final class DroneExplosionEffects {
             shrapnel.shoot(direction.x, direction.y, direction.z, Math.max(0.4F, profile.shrapnelSpeedCap()), 5.0F);
             level.addFreshEntity(shrapnel);
         }
+    }
+
+    private static Vec3 randomHorizontalDirection(final ServerLevel level) {
+        final double theta = Math.PI * 2.0D * level.random.nextDouble();
+        final double horizontalX = Math.cos(theta);
+        final double horizontalZ = Math.sin(theta);
+        final double vertical = (level.random.nextDouble() - 0.5D) * 0.7D;
+        return new Vec3(horizontalX, vertical, horizontalZ).normalize();
+    }
+
+    private static Vec3 randomSphericalDirection(final ServerLevel level) {
+        final double u = level.random.nextDouble();
+        final double v = level.random.nextDouble();
+        final double theta = Math.PI * 2.0D * u;
+        final double phi = Math.acos(2.0D * v - 1.0D);
+        final double dx = Math.sin(phi) * Math.cos(theta);
+        final double dy = Math.sin(phi) * Math.sin(theta);
+        final double dz = Math.cos(phi);
+        return new Vec3(dx, dy, dz).normalize();
+    }
+
+    private static Vec3 randomDirectionInCone(final Vec3 forward, final float coneHalfAngleDeg, final ServerLevel level) {
+        final Vec3 normalizedForward = forward.normalize();
+        final Vec3 referenceUp = Math.abs(normalizedForward.y) > 0.98D ? new Vec3(1.0D, 0.0D, 0.0D) : new Vec3(0.0D, 1.0D, 0.0D);
+        final Vec3 basisRight = normalizedForward.cross(referenceUp).normalize();
+        final Vec3 basisUp = basisRight.cross(normalizedForward).normalize();
+
+        final double coneHalfAngleRad = Math.toRadians(coneHalfAngleDeg);
+        final double azimuth = Math.PI * 2.0D * level.random.nextDouble();
+        final double cosTheta = Mth.lerp(level.random.nextDouble(), Math.cos(coneHalfAngleRad), 1.0D);
+        final double sinTheta = Math.sqrt(Math.max(0.0D, 1.0D - cosTheta * cosTheta));
+
+        final Vec3 lateral = basisRight.scale(Math.cos(azimuth)).add(basisUp.scale(Math.sin(azimuth)));
+        return normalizedForward.scale(cosTheta).add(lateral.scale(sinTheta)).normalize();
     }
 
     private static void playLayeredDistanceSounds(final ServerLevel level, final Vec3 origin) {
@@ -270,10 +324,18 @@ public final class DroneExplosionEffects {
         double shrapnelRange,
         float blastLethalRadius,
         float blastMaxRadius,
-        float shrapnelSpeedCap
+        float shrapnelSpeedCap,
+        ShrapnelPattern shrapnelPattern,
+        float coneHalfAngleDeg
     ) {
         private float baseBlastDamage() {
             return Math.max(120.0F, this.blastLethalRadius * 60.0F);
         }
+    }
+
+    private enum ShrapnelPattern {
+        SPHERICAL,
+        HORIZONTAL_RING,
+        FORWARD_CONE
     }
 }

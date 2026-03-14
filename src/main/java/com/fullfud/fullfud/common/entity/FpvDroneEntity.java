@@ -968,12 +968,18 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return;
         }
         final ServerPlayer controller = getController();
+        final DronePreset preset = getDronePreset();
+        final Vec3 explosionDirection = resolveExplosionDirection();
         prepareForDestruction();
-        spawnTntEffect(controller);
+        spawnTntEffect(controller, preset, explosionDirection);
         discard();
     }
 
-    private void spawnTntEffect(@javax.annotation.Nullable final ServerPlayer controller) {
+    private void spawnTntEffect(
+        @javax.annotation.Nullable final ServerPlayer controller,
+        final DronePreset preset,
+        final Vec3 explosionDirection
+    ) {
         if (!(level() instanceof ServerLevel serverLevel)) {
             return;
         }
@@ -983,7 +989,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         DroneExplosionLimiter.markNoEntityDamage(tnt);
         serverLevel.addFreshEntity(tnt);
         serverLevel.explode(tnt, getX(), getY(), getZ(), FPV_FIREBALL_POWER, net.minecraft.world.level.Level.ExplosionInteraction.MOB);
-        DroneExplosionEffects.afterFpvExplosion(serverLevel, tnt, controller);
+        DroneExplosionEffects.afterFpvExplosion(serverLevel, tnt, controller, preset, explosionDirection);
         tnt.discard();
     }
 
@@ -1003,6 +1009,22 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return end;
         }
         return target.getBoundingBox().inflate(0.05D).clip(start, end).orElse(end);
+    }
+
+    private Vec3 resolveExplosionDirection() {
+        if (linearVelocity.lengthSqr() > 1.0E-6D) {
+            return linearVelocity.normalize();
+        }
+        final Vec3 motion = getDeltaMovement();
+        if (motion.lengthSqr() > 1.0E-6D) {
+            return motion.normalize();
+        }
+        final Vector3f forward = dronePhysics.getForward();
+        final Vec3 forwardVec = new Vec3(forward.x, forward.y, forward.z);
+        if (forwardVec.lengthSqr() > 1.0E-6D) {
+            return forwardVec.normalize();
+        }
+        return new Vec3(0.0D, 0.0D, 1.0D);
     }
 
     private void dropAsItem() {

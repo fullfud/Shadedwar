@@ -88,6 +88,7 @@ public final class ShahedClientHandler {
     private static final Map<UUID, EngineAudioController> ENGINE_AUDIO = new HashMap<>();
     private static final Map<UUID, GhostState> GHOST_STATES = new HashMap<>();
     private static final Map<UUID, ShahedDroneEntity> GHOST_ENTITIES = new HashMap<>();
+    private static final int GHOST_INTERPOLATION_MAX_STEPS = 10;
     private static boolean localPlayerStateCaptured;
     private static boolean localPlayerInvisible;
     private static boolean localPlayerSilent;
@@ -264,7 +265,7 @@ public final class ShahedClientHandler {
 
         private void updateFromEntity() {
             seen = true;
-            update(drone.getThrust());
+            update(drone.getAudioEngineMix());
         }
 
         private void update(final float thrust) {
@@ -336,6 +337,7 @@ public final class ShahedClientHandler {
             clearGhostState();
             return;
         }
+        GHOST_STATES.values().forEach(GhostState::tickClient);
         cleanupGhostState(minecraft);
     }
 
@@ -450,52 +452,73 @@ public final class ShahedClientHandler {
     }
 
     private static final class GhostState {
-        private double prevX;
-        private double prevY;
-        private double prevZ;
-        private double x;
-        private double y;
-        private double z;
-        private double prevVelocityX;
-        private double prevVelocityY;
-        private double prevVelocityZ;
-        private double velocityX;
-        private double velocityY;
-        private double velocityZ;
-        private float prevYaw;
-        private float prevPitch;
-        private float prevRoll;
-        private float prevThrust;
-        private float yaw;
-        private float pitch;
-        private float roll;
-        private float thrust;
+        private double prevRenderX;
+        private double prevRenderY;
+        private double prevRenderZ;
+        private double renderX;
+        private double renderY;
+        private double renderZ;
+        private double targetX;
+        private double targetY;
+        private double targetZ;
+        private double prevRenderVelocityX;
+        private double prevRenderVelocityY;
+        private double prevRenderVelocityZ;
+        private double renderVelocityX;
+        private double renderVelocityY;
+        private double renderVelocityZ;
+        private double targetVelocityX;
+        private double targetVelocityY;
+        private double targetVelocityZ;
+        private float prevRenderYaw;
+        private float prevRenderPitch;
+        private float prevRenderRoll;
+        private float prevRenderThrust;
+        private float renderYaw;
+        private float renderPitch;
+        private float renderRoll;
+        private float renderThrust;
+        private float targetYaw;
+        private float targetPitch;
+        private float targetRoll;
+        private float targetThrust;
         private int colorId;
         private boolean onLauncher;
         private long lastUpdateTick;
+        private int interpolationSteps;
 
         private static GhostState create(final ShahedGhostUpdatePacket packet, final long nowTick) {
             final GhostState state = new GhostState();
-            state.prevX = packet.x();
-            state.prevY = packet.y();
-            state.prevZ = packet.z();
-            state.x = packet.x();
-            state.y = packet.y();
-            state.z = packet.z();
-            state.prevVelocityX = packet.velocityX();
-            state.prevVelocityY = packet.velocityY();
-            state.prevVelocityZ = packet.velocityZ();
-            state.velocityX = packet.velocityX();
-            state.velocityY = packet.velocityY();
-            state.velocityZ = packet.velocityZ();
-            state.prevYaw = packet.yaw();
-            state.prevPitch = packet.pitch();
-            state.prevRoll = packet.roll();
-            state.prevThrust = packet.thrust();
-            state.yaw = packet.yaw();
-            state.pitch = packet.pitch();
-            state.roll = packet.roll();
-            state.thrust = packet.thrust();
+            state.prevRenderX = packet.x();
+            state.prevRenderY = packet.y();
+            state.prevRenderZ = packet.z();
+            state.renderX = packet.x();
+            state.renderY = packet.y();
+            state.renderZ = packet.z();
+            state.targetX = packet.x();
+            state.targetY = packet.y();
+            state.targetZ = packet.z();
+            state.prevRenderVelocityX = packet.velocityX();
+            state.prevRenderVelocityY = packet.velocityY();
+            state.prevRenderVelocityZ = packet.velocityZ();
+            state.renderVelocityX = packet.velocityX();
+            state.renderVelocityY = packet.velocityY();
+            state.renderVelocityZ = packet.velocityZ();
+            state.targetVelocityX = packet.velocityX();
+            state.targetVelocityY = packet.velocityY();
+            state.targetVelocityZ = packet.velocityZ();
+            state.prevRenderYaw = packet.yaw();
+            state.prevRenderPitch = packet.pitch();
+            state.prevRenderRoll = packet.roll();
+            state.prevRenderThrust = packet.thrust();
+            state.renderYaw = packet.yaw();
+            state.renderPitch = packet.pitch();
+            state.renderRoll = packet.roll();
+            state.renderThrust = packet.thrust();
+            state.targetYaw = packet.yaw();
+            state.targetPitch = packet.pitch();
+            state.targetRoll = packet.roll();
+            state.targetThrust = packet.thrust();
             state.colorId = packet.colorId();
             state.onLauncher = packet.onLauncher();
             state.lastUpdateTick = nowTick;
@@ -503,69 +526,95 @@ public final class ShahedClientHandler {
         }
 
         private void update(final ShahedGhostUpdatePacket packet, final long nowTick) {
-            prevX = x;
-            prevY = y;
-            prevZ = z;
-            prevVelocityX = velocityX;
-            prevVelocityY = velocityY;
-            prevVelocityZ = velocityZ;
-            prevYaw = yaw;
-            prevPitch = pitch;
-            prevRoll = roll;
-            prevThrust = thrust;
-            x = packet.x();
-            y = packet.y();
-            z = packet.z();
-            velocityX = packet.velocityX();
-            velocityY = packet.velocityY();
-            velocityZ = packet.velocityZ();
-            yaw = packet.yaw();
-            pitch = packet.pitch();
-            roll = packet.roll();
-            thrust = packet.thrust();
+            targetX = packet.x();
+            targetY = packet.y();
+            targetZ = packet.z();
+            targetVelocityX = packet.velocityX();
+            targetVelocityY = packet.velocityY();
+            targetVelocityZ = packet.velocityZ();
+            targetYaw = packet.yaw();
+            targetPitch = packet.pitch();
+            targetRoll = packet.roll();
+            targetThrust = packet.thrust();
             colorId = packet.colorId();
             onLauncher = packet.onLauncher();
+            interpolationSteps = Mth.clamp((int) Math.max(1L, nowTick - lastUpdateTick), 1, GHOST_INTERPOLATION_MAX_STEPS);
             lastUpdateTick = nowTick;
         }
 
+        private void tickClient() {
+            prevRenderX = renderX;
+            prevRenderY = renderY;
+            prevRenderZ = renderZ;
+            prevRenderVelocityX = renderVelocityX;
+            prevRenderVelocityY = renderVelocityY;
+            prevRenderVelocityZ = renderVelocityZ;
+            prevRenderYaw = renderYaw;
+            prevRenderPitch = renderPitch;
+            prevRenderRoll = renderRoll;
+            prevRenderThrust = renderThrust;
+
+            if (interpolationSteps > 0) {
+                renderX = renderX + (targetX - renderX) / (double) interpolationSteps;
+                renderY = renderY + (targetY - renderY) / (double) interpolationSteps;
+                renderZ = renderZ + (targetZ - renderZ) / (double) interpolationSteps;
+                renderVelocityX = renderVelocityX + (targetVelocityX - renderVelocityX) / (double) interpolationSteps;
+                renderVelocityY = renderVelocityY + (targetVelocityY - renderVelocityY) / (double) interpolationSteps;
+                renderVelocityZ = renderVelocityZ + (targetVelocityZ - renderVelocityZ) / (double) interpolationSteps;
+                --interpolationSteps;
+            } else {
+                renderVelocityX = targetVelocityX;
+                renderVelocityY = targetVelocityY;
+                renderVelocityZ = targetVelocityZ;
+            }
+
+            final float diffYaw = Mth.wrapDegrees(targetYaw - renderYaw);
+            final float diffPitch = Mth.wrapDegrees(targetPitch - renderPitch);
+            final float diffRoll = Mth.wrapDegrees(targetRoll - renderRoll);
+            renderYaw = Mth.wrapDegrees(renderYaw + 0.1F * diffYaw);
+            renderPitch = Mth.clamp(renderPitch + 0.1F * diffPitch, -90.0F, 90.0F);
+            renderRoll = Mth.wrapDegrees(renderRoll + 0.1F * diffRoll);
+            renderThrust = Mth.lerp(0.1F, renderThrust, targetThrust);
+        }
+
         private double x(final float partialTick) {
-            return Mth.lerp(partialTick, prevX, x);
+            return Mth.lerp(partialTick, prevRenderX, renderX);
         }
 
         private double y(final float partialTick) {
-            return Mth.lerp(partialTick, prevY, y);
+            return Mth.lerp(partialTick, prevRenderY, renderY);
         }
 
         private double z(final float partialTick) {
-            return Mth.lerp(partialTick, prevZ, z);
+            return Mth.lerp(partialTick, prevRenderZ, renderZ);
         }
 
         private double velocityX(final float partialTick) {
-            return Mth.lerp(partialTick, prevVelocityX, velocityX);
+            return Mth.lerp(partialTick, prevRenderVelocityX, renderVelocityX);
         }
 
         private double velocityY(final float partialTick) {
-            return Mth.lerp(partialTick, prevVelocityY, velocityY);
+            return Mth.lerp(partialTick, prevRenderVelocityY, renderVelocityY);
         }
 
         private double velocityZ(final float partialTick) {
-            return Mth.lerp(partialTick, prevVelocityZ, velocityZ);
+            return Mth.lerp(partialTick, prevRenderVelocityZ, renderVelocityZ);
         }
 
         private float yaw(final float partialTick) {
-            return Mth.rotLerp(partialTick, prevYaw, yaw);
+            return Mth.rotLerp(partialTick, prevRenderYaw, renderYaw);
         }
 
         private float pitch(final float partialTick) {
-            return Mth.rotLerp(partialTick, prevPitch, pitch);
+            return Mth.rotLerp(partialTick, prevRenderPitch, renderPitch);
         }
 
         private float roll(final float partialTick) {
-            return Mth.rotLerp(partialTick, prevRoll, roll);
+            return Mth.rotLerp(partialTick, prevRenderRoll, renderRoll);
         }
 
         private float thrust(final float partialTick) {
-            return Mth.lerp(partialTick, prevThrust, thrust);
+            return Mth.lerp(partialTick, prevRenderThrust, renderThrust);
         }
     }
 

@@ -99,6 +99,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Integer> DATA_COLOR = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Boolean> DATA_ON_LAUNCHER = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_SERVER_YAW = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_SERVER_PITCH = SynchedEntityData.defineId(ShahedDroneEntity.class, EntityDataSerializers.FLOAT);
 
     private static final String TAG_THRUST = "Thrust";
     private static final String TAG_MOTION = "Motion";
@@ -109,6 +111,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final String TAG_BODY_YAW = "BodyYaw";
     private static final String TAG_BODY_PITCH = "BodyPitch";
     private static final String TAG_BODY_ROLL = "BodyRoll";
+    private static final String TAG_SERVER_YAW = "ServerYaw";
+    private static final String TAG_SERVER_PITCH = "ServerPitch";
     private static final String TAG_REMOTE_INIT = "RemoteInit";
     private static final String TAG_COLOR = "Color";
     private static final String TAG_ON_LAUNCHER = "OnLauncher";
@@ -201,6 +205,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private static final byte AUDIO_KIND_START = 1;
     private static final byte AUDIO_KIND_STOP = 2;
     private static final float ENGINE_ACTIVE_THRESHOLD = 0.02F;
+    private static final float ENGINE_IDLE_AUDIO_MIX = 0.22F;
     private static final double SHAHED_AUDIO_RANGE_BLOCKS = 800.0D;
     // Explosion tuning: approximate TNT-equivalent power for visual/terrain effects (Explosion Overhaul uses power).
     private static final float SHAHED_FIREBALL_POWER = 15.0F;
@@ -230,11 +235,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private UUID mountedLauncherUuid;
 
     private int lerpSteps;
-    private double lerpX;
-    private double lerpY;
-    private double lerpZ;
-    private double lerpYRot;
-    private double lerpXRot;
+    private double xO;
+    private double yO;
+    private double zO;
 
     public ShahedDroneEntity(final EntityType<? extends ShahedDroneEntity> entityType, final Level level) {
         super(entityType, level);
@@ -267,6 +270,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.entityData.define(DATA_COLOR, ShahedColor.WHITE.getId());
         this.entityData.define(DATA_ON_LAUNCHER, false);
         this.entityData.define(DATA_ROLL, 0.0F);
+        this.entityData.define(DATA_SERVER_YAW, getYRot());
+        this.entityData.define(DATA_SERVER_PITCH, getXRot());
     }
 
     @Override
@@ -280,6 +285,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         if (isOnLauncher()) {
             if (!level().isClientSide) {
                 handleLauncherAttachment();
+                broadcastEngineAudio();
             }
             return;
         }
@@ -308,19 +314,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             }
         }
 
+        handleClientSync();
+
         if (level().isClientSide() && !isControlledByLocalInstance()) {
-            if (this.lerpSteps > 0) {
-                double d0 = this.getX() + (this.lerpX - this.getX()) / (double) this.lerpSteps;
-                double d1 = this.getY() + (this.lerpY - this.getY()) / (double) this.lerpSteps;
-                double d2 = this.getZ() + (this.lerpZ - this.getZ()) / (double) this.lerpSteps;
-                double d3 = Mth.wrapDegrees(this.lerpYRot - (double) this.getYRot());
-                this.setYRot(this.getYRot() + (float) d3 / (float) this.lerpSteps);
-                double d4 = Mth.wrapDegrees(this.lerpXRot - (double) this.getXRot());
-                this.setXRot(this.getXRot() + (float) d4 / (float) this.lerpSteps);
-                this.lerpSteps--;
-                this.setPos(d0, d1, d2);
-                this.setRot(this.getYRot(), this.getXRot());
-            }
             this.bodyPitch = this.getXRot();
             this.bodyYaw = this.getYRot();
             updateBoundingBox();
@@ -378,15 +374,15 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
 
-        final float thrust = Mth.clamp(getThrust(), 0.0F, 1.0F);
-        final boolean engineActive = armed;
+        final float engineMix = getAudioEngineMix();
+        final boolean engineActive = engineMix > ENGINE_ACTIVE_THRESHOLD;
 
         final double range = SHAHED_AUDIO_RANGE_BLOCKS;
         final double rangeSqr = range * range;
 
         if (engineActive != lastEngineActiveAudio) {
             final byte kind = engineActive ? AUDIO_KIND_START : AUDIO_KIND_STOP;
-            final float strength = engineActive ? thrust : lastThrustAudio;
+            final float strength = engineActive ? engineMix : lastThrustAudio;
             for (final ServerPlayer player : serverLevel.players()) {
                 final boolean controlling = controllingPlayer != null && controllingPlayer.equals(player.getUUID());
                 final double distSqr = controlling ? 0.0D : player.distanceToSqr(this);
@@ -412,8 +408,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             final double speed = motion.length();
             final float speedFactor = (float) Mth.clamp(speed / 1.8D, 0.0D, 1.0D);
             final float flightVolumeMult = 1.0F + speedFactor * 0.35F;
-            final float pitch = 0.85F + thrust * 0.35F + speedFactor * 0.12F;
-            final float base = (0.3F + thrust * 0.7F) * flightVolumeMult;
+            final float pitch = 0.85F + engineMix * 0.35F + speedFactor * 0.12F;
+            final float base = (0.3F + engineMix * 0.7F) * flightVolumeMult;
 
             for (final ServerPlayer player : serverLevel.players()) {
                 final boolean controlling = controllingPlayer != null && controllingPlayer.equals(player.getUUID());
@@ -442,7 +438,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
 
         lastEngineActiveAudio = engineActive;
-        lastThrustAudio = thrust;
+        lastThrustAudio = engineMix;
     }
 
     private static float distanceFactor(final double distSqr, final double range, final double exponent) {
@@ -463,15 +459,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     @Override
     public void lerpTo(double x, double y, double z, float yaw, float pitch, int posRotationIncrements, boolean teleport) {
-        if (this.isControlledByLocalInstance()) {
-            return;
-        }
-        this.lerpX = x;
-        this.lerpY = y;
-        this.lerpZ = z;
-        this.lerpYRot = yaw;
-        this.lerpXRot = pitch;
-        this.lerpSteps = posRotationIncrements;
+        this.xO = x;
+        this.yO = y;
+        this.zO = z;
+        this.lerpSteps = 10;
     }
 
     public float getVisualRoll(float partialTick) {
@@ -480,6 +471,34 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
 
     public float getVisualPitch(float partialTick) {
         return (float) Mth.lerp(partialTick, bodyPitchO, bodyPitch);
+    }
+
+    private void handleClientSync() {
+        if (level() instanceof ServerLevel && tickCount % 2 == 0) {
+            entityData.set(DATA_SERVER_YAW, getYRot());
+            entityData.set(DATA_SERVER_PITCH, getXRot());
+        }
+        if (isControlledByLocalInstance()) {
+            lerpSteps = 0;
+            syncPacketPositionCodec(getX(), getY(), getZ());
+        }
+        if (lerpSteps <= 0) {
+            return;
+        }
+
+        final double interpolatedX = getX() + (xO - getX()) / (double) lerpSteps;
+        final double interpolatedY = getY() + (yO - getY()) / (double) lerpSteps;
+        final double interpolatedZ = getZ() + (zO - getZ()) / (double) lerpSteps;
+
+        final float diffY = Mth.wrapDegrees(entityData.get(DATA_SERVER_YAW) - this.getYRot());
+        final float diffX = Mth.wrapDegrees(entityData.get(DATA_SERVER_PITCH) - this.getXRot());
+
+        this.setYRot(this.getYRot() + 0.1f * diffY);
+        this.setXRot(this.getXRot() + 0.1f * diffX);
+
+        setPos(interpolatedX, interpolatedY, interpolatedZ);
+
+        --lerpSteps;
     }
 
     public void applyClientGhostState(final double x,
@@ -832,6 +851,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.bodyYaw = tag.contains(TAG_BODY_YAW) ? tag.getDouble(TAG_BODY_YAW) : this.getYRot();
         this.bodyPitch = tag.contains(TAG_BODY_PITCH) ? tag.getDouble(TAG_BODY_PITCH) : this.getXRot();
         this.bodyRoll = tag.contains(TAG_BODY_ROLL) ? tag.getDouble(TAG_BODY_ROLL) : 0.0D;
+        this.entityData.set(DATA_SERVER_YAW, tag.contains(TAG_SERVER_YAW) ? tag.getFloat(TAG_SERVER_YAW) : this.getYRot());
+        this.entityData.set(DATA_SERVER_PITCH, tag.contains(TAG_SERVER_PITCH) ? tag.getFloat(TAG_SERVER_PITCH) : this.getXRot());
         this.bodyPitchO = this.bodyPitch;
         this.bodyRollO = this.bodyRoll;
         this.remoteInitialized = tag.getBoolean(TAG_REMOTE_INIT);
@@ -889,6 +910,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         tag.putDouble(TAG_BODY_YAW, bodyYaw);
         tag.putDouble(TAG_BODY_PITCH, bodyPitch);
         tag.putDouble(TAG_BODY_ROLL, bodyRoll);
+        tag.putFloat(TAG_SERVER_YAW, this.entityData.get(DATA_SERVER_YAW));
+        tag.putFloat(TAG_SERVER_PITCH, this.entityData.get(DATA_SERVER_PITCH));
         tag.putBoolean(TAG_REMOTE_INIT, remoteInitialized);
         tag.putInt(TAG_COLOR, getColor().getId());
         if (isOnLauncher() && mountedLauncherUuid != null) {
@@ -1235,6 +1258,18 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         return this.entityData.get(DATA_THRUST);
     }
 
+    public float getAudioEngineMix() {
+        float mix = Mth.clamp(getThrust(), 0.0F, 1.0F);
+        mix = Math.max(mix, (float) Mth.clamp(engineOutput, 0.0D, 1.0D));
+        if (remoteInitialized || armed) {
+            mix = Math.max(mix, 0.18F);
+        }
+        if (isOnLauncher()) {
+            mix = Math.max(mix, ENGINE_IDLE_AUDIO_MIX);
+        }
+        return Mth.clamp(mix, 0.0F, 1.0F);
+    }
+
     @Override
     public EntityDimensions getDimensions(final Pose pose) {
         return SHAHEED_DIMENSIONS;
@@ -1341,6 +1376,9 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final Vec3 spawn = base.add(forward.scale(LAUNCHER_FORWARD_OFFSET)).add(0.0D, LAUNCHER_UP_OFFSET, 0.0D);
         setPos(spawn.x, spawn.y, spawn.z);
         final double scale = resolveSpeedScale();
+        setThrust(1.0F);
+        this.engineOutput = 1.0D;
+        this.remoteInitialized = true;
         releaseFromLauncher(new Vec3(forward.x * LAUNCHER_LAUNCH_SPEED * scale, 0.0D, forward.z * LAUNCHER_LAUNCH_SPEED * scale), yaw);
     }
 
