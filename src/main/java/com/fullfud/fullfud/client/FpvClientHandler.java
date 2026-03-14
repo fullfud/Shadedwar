@@ -734,7 +734,7 @@ public final class FpvClientHandler {
         pose.translate(cx, cy, 0);
         pose.mulPose(Axis.ZP.rotationDegrees(-roll));
 
-        float pitchOffset = pitch * 2.5F;
+        float pitchOffset = -pitch * 2.5F;
         pose.translate(0, pitchOffset, 0);
 
         pose.scale(2.0F, 2.0F, 1.0F);
