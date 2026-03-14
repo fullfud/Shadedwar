@@ -188,11 +188,27 @@ public final class ShahedClientHandler {
         return System.currentTimeMillis() - lastStatusTimestamp <= timeoutMs;
     }
 
-    public static void sendControlPacket(final UUID droneId, final float forward, final float strafe, final float vertical, final float thrustDelta) {
+    public static void sendControlPacket(
+        final UUID droneId,
+        final float forward,
+        final float strafe,
+        final float vertical,
+        final float thrustDelta,
+        final float mousePitchDelta,
+        final float mouseRollDelta
+    ) {
         if (droneId == null) {
             return;
         }
-        FullfudNetwork.getChannel().sendToServer(new ShahedControlPacket(droneId, forward, strafe, vertical, thrustDelta));
+        FullfudNetwork.getChannel().sendToServer(new ShahedControlPacket(
+            droneId,
+            forward,
+            strafe,
+            vertical,
+            thrustDelta,
+            mousePitchDelta,
+            mouseRollDelta
+        ));
     }
 
     private static void onComputeCameraAngles(final ViewportEvent.ComputeCameraAngles event) {

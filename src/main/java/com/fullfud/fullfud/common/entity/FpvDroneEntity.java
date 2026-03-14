@@ -9,6 +9,7 @@ import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.DroneExplosionEffects;
 import com.fullfud.fullfud.core.DroneExplosionLimiter;
 import com.fullfud.fullfud.core.PlayerDecoyManager;
+import com.fullfud.fullfud.core.RemotePlayerProtection;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
@@ -1183,6 +1184,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
         session = new ControlSession(player.level().dimension(), player.position(), player.getYRot(), player.getXRot(), player.gameMode.getGameModeForPlayer());
         writeRemoteTag(player);
+        RemotePlayerProtection.touch(player);
         PlayerDecoyManager.createDecoy(player, this);
         syncRemoteController(player);
         lastSentViewCenter = null;
@@ -1212,9 +1214,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         final UUID controllerId = entityData.get(DATA_CONTROLLER).orElse(null);
         final ServerPlayer controlling = player != null ? player : resolvePlayer(controllerId);
         final ControlSession endedSession = session;
-        if (controlling != null) {
-            clearRemoteTag(controlling);
-        }
         if (controllerId != null) {
             PlayerDecoyManager.removeDecoy(controllerId);
         } else {
@@ -1222,6 +1221,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
         if (controlling != null) {
             restoreRemoteController(controlling, endedSession);
+            clearRemoteTag(controlling);
         }
         
         entityData.set(DATA_CONTROLLER, Optional.empty());
@@ -1301,6 +1301,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         player.setSilent(true);
         player.noPhysics = true;
         player.hurtMarked = true;
+        RemotePlayerProtection.touch(player);
         syncRemotePlayerVisibility(player, true);
         syncRemotePlayerEquipment(player, true);
         if (this.tickCount % 20 == 0) {
@@ -1314,6 +1315,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             return;
         }
         clearViewPoint(player);
+        RemotePlayerProtection.clear(player);
         player.setInvisible(false);
         player.setSilent(false);
         player.setNoGravity(false);
@@ -1338,6 +1340,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
 
         clearViewPoint(player);
+        RemotePlayerProtection.clear(player);
         player.setInvisible(false);
         player.setSilent(false);
         player.setNoGravity(false);

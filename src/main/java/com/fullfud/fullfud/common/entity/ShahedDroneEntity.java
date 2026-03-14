@@ -6,6 +6,7 @@ import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.DroneExplosionEffects;
 import com.fullfud.fullfud.core.DroneExplosionLimiter;
 import com.fullfud.fullfud.core.PlayerDecoyManager;
+import com.fullfud.fullfud.core.RemotePlayerProtection;
 import com.fullfud.fullfud.core.data.ShahedLinkData;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.ChunkLoadManager;
@@ -173,6 +174,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     private float controlForward;
     private float controlStrafe;
     private float controlVertical;
+    private float inputMousePitchDelta;
+    private float inputMouseRollDelta;
     private Vec3 linearVelocity = Vec3.ZERO;
     private Vec3 lastFlightStart = Vec3.ZERO;
     private double crippledHorizontalTargetSpeed = -1.0D;
@@ -542,6 +545,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             controlForward = 0.0F;
             controlStrafe = 0.0F;
             controlVertical = 0.0F;
+            inputMousePitchDelta = 0.0F;
+            inputMouseRollDelta = 0.0F;
         }
 
         if (menuGraceTicks > 0) {
@@ -645,8 +650,10 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         final double targetPitchRateDegPerSec = controlForward * MAX_PITCH_RATE * rateScale;
         pitchRate = approach(pitchRate, Math.toRadians(targetPitchRateDegPerSec), Math.toRadians(PITCH_ACCEL * rateScale) * dt);
 
-        final float pitchDeltaRad = (float) (pitchRate * dt);
-        final float rollDeltaRad = (float) (rollRate * dt);
+        final float pitchDeltaRad = (float) (pitchRate * dt) + inputMousePitchDelta;
+        final float rollDeltaRad = (float) (rollRate * dt) + inputMouseRollDelta;
+        inputMousePitchDelta = 0.0F;
+        inputMouseRollDelta = 0.0F;
 
         final Quaternionf delta = new Quaternionf()
             .rotateX(pitchDeltaRad)
@@ -1007,13 +1014,17 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
 
         if (packet.thrustDelta() == Float.NEGATIVE_INFINITY) {
+            inputMousePitchDelta = 0.0F;
+            inputMouseRollDelta = 0.0F;
             releaseCameraFor(sender);
             return;
         }
         if (!Float.isFinite(packet.forward())
             || !Float.isFinite(packet.strafe())
             || !Float.isFinite(packet.vertical())
-            || !Float.isFinite(packet.thrustDelta())) {
+            || !Float.isFinite(packet.thrustDelta())
+            || !Float.isFinite(packet.mousePitchDelta())
+            || !Float.isFinite(packet.mouseRollDelta())) {
             return;
         }
         if (!canReceiveControl()) {
@@ -1022,6 +1033,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.controlForward = Mth.clamp(packet.forward(), -1.0F, 1.0F);
         this.controlStrafe = Mth.clamp(packet.strafe(), -1.0F, 1.0F);
         this.controlVertical = Mth.clamp(packet.vertical(), -1.0F, 1.0F);
+        this.inputMousePitchDelta = Mth.clamp(packet.mousePitchDelta(), -0.5F, 0.5F);
+        this.inputMouseRollDelta = Mth.clamp(packet.mouseRollDelta(), -0.5F, 0.5F);
         this.controlTimeout = CONTROL_TIMEOUT_TICKS;
         final float thrustDelta = Mth.clamp(packet.thrustDelta(), -0.05F, 0.05F);
         final float newThrust = Mth.clamp(getThrust() + thrustDelta, 0.0F, 1.0F);
@@ -1660,6 +1673,8 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         this.controlForward = 0.0F;
         this.controlStrafe = 0.0F;
         this.controlVertical = 0.0F;
+        this.inputMousePitchDelta = 0.0F;
+        this.inputMouseRollDelta = 0.0F;
         this.rollRate = 0.0D;
         this.pitchRate = 0.0D;
         this.fuelMass = FUEL_CAPACITY_KG;
@@ -1716,6 +1731,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         controllingPlayer = player.getUUID();
         menuGraceTicks = 40;
         writeRemoteTag(player);
+        RemotePlayerProtection.touch(player);
         PlayerDecoyManager.createDecoy(player, this);
         syncRemoteController(player);
         syncViewCenter(player);
@@ -1740,6 +1756,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
     public void endRemoteControl(final ServerPlayer player) {
         if (controlSession == null) {
             if (player != null) {
+                RemotePlayerProtection.clear(player);
                 clearRemoteTag(player);
                 PlayerDecoyManager.removeDecoy(player.getUUID());
             } else if (controllingPlayer != null) {
@@ -1748,10 +1765,6 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
                 PlayerDecoyManager.removeDecoyByDrone(getUUID());
             }
             return;
-        }
-
-        if (player != null) {
-            clearRemoteTag(player);
         }
 
         if (player != null && controllingPlayer != null && !controllingPlayer.equals(player.getUUID())) {
@@ -1766,6 +1779,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
         if (player != null) {
             restoreRemoteController(player, endedSession);
+            clearRemoteTag(player);
         }
         
         controllingPlayer = null;
@@ -1905,6 +1919,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         player.setSilent(true);
         player.noPhysics = true;
         player.hurtMarked = true;
+        RemotePlayerProtection.touch(player);
         syncRemotePlayerVisibility(player, true);
         syncRemotePlayerEquipment(player, true);
         if (this.tickCount % 20 == 0) {
@@ -1918,6 +1933,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
             return;
         }
         clearViewPoint(player);
+        RemotePlayerProtection.clear(player);
         player.setInvisible(false);
         player.setSilent(false);
         player.setNoGravity(false);
@@ -1941,6 +1957,7 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         }
 
         clearViewPoint(player);
+        RemotePlayerProtection.clear(player);
         player.setInvisible(false);
         player.setSilent(false);
         player.setNoGravity(false);

@@ -22,11 +22,7 @@ public class ShahedDroneRenderer extends GeoEntityRenderer<ShahedDroneEntity> {
         poseStack.pushPose();
         
         poseStack.mulPose(Axis.YP.rotationDegrees(180.0F - entityYaw));
-        
-        final float pitch = entity.getVisualPitch(partialTick);
-        poseStack.mulPose(Axis.XP.rotationDegrees(pitch / 3.0F));
-        
-        poseStack.mulPose(Axis.ZP.rotationDegrees(entity.getVisualRoll(partialTick) * 2.0F));
+        poseStack.mulPose(Axis.ZP.rotationDegrees(entity.getVisualRoll(partialTick)));
         
         poseStack.translate(0.0D, -0.25D, 0.0D);
         

@@ -31,11 +31,13 @@ public final class RemoteControlFailsafe {
         if (!(event.player instanceof ServerPlayer player)) {
             return;
         }
+        RemotePlayerProtection.tick(player);
         final CompoundTag root = player.getPersistentData();
 
         if (root.contains(FpvDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(FpvDroneEntity.PLAYER_REMOTE_TAG);
             if (FpvDroneEntity.isRemoteControlActive(player.getServer(), player.getUUID(), tag)) {
+                RemotePlayerProtection.touch(player);
                 forceChunkTracking(player);
             } else {
                 FpvDroneEntity.forceRestoreFromPersistentData(player, tag);
@@ -47,6 +49,7 @@ public final class RemoteControlFailsafe {
             final CompoundTag tag = root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG);
             final boolean active = player.containerMenu instanceof ShahedMonitorMenu;
             if (active) {
+                RemotePlayerProtection.touch(player);
                 forceChunkTracking(player);
             } else {
                 ShahedDroneEntity.forceRestoreFromPersistentData(player, tag);
@@ -63,10 +66,12 @@ public final class RemoteControlFailsafe {
         final CompoundTag root = player.getPersistentData();
         if (root.contains(FpvDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(FpvDroneEntity.PLAYER_REMOTE_TAG);
+            RemotePlayerProtection.clear(player);
             FpvDroneEntity.forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
         }
         if (root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG);
+            RemotePlayerProtection.clear(player);
             ShahedDroneEntity.forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
         }
     }
