@@ -163,13 +163,11 @@ public final class DroneExplosionEffects {
         final BlastProfile profile
     ) {
         for (int i = 0; i < profile.shrapnelCount(); i++) {
-            final double u = level.random.nextDouble();
-            final double v = level.random.nextDouble();
-            final double theta = Math.PI * 2.0D * u;
-            final double phi = Math.acos(2.0D * v - 1.0D);
-            final double dx = Math.sin(phi) * Math.cos(theta);
-            final double dy = Math.sin(phi) * Math.sin(theta);
-            final double dz = Math.cos(phi);
+            final double theta = Math.PI * 2.0D * level.random.nextDouble();
+            final double horizontalX = Math.cos(theta);
+            final double horizontalZ = Math.sin(theta);
+            final double vertical = (level.random.nextDouble() - 0.5D) * 0.7D;
+            final Vec3 direction = new Vec3(horizontalX, vertical, horizontalZ).normalize();
 
             final ExplosionShrapnelEntity shrapnel = new ExplosionShrapnelEntity(
                 FullfudRegistries.EXPLOSION_SHRAPNEL_ENTITY.get(),
@@ -182,7 +180,7 @@ public final class DroneExplosionEffects {
             shrapnel.setDamage(profile.shrapnelDamage());
             shrapnel.setMaxRange(profile.shrapnelRange());
             shrapnel.setStartPos(origin);
-            shrapnel.shoot(dx, dy, dz, Math.max(0.4F, profile.shrapnelSpeedCap()), 5.0F);
+            shrapnel.shoot(direction.x, direction.y, direction.z, Math.max(0.4F, profile.shrapnelSpeedCap()), 5.0F);
             level.addFreshEntity(shrapnel);
         }
     }
