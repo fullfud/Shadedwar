@@ -107,6 +107,8 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     
     private static final float YAW_SINGULARITY_PITCH_DEG = 89.0F;
     private static final double YAW_SINGULARITY_HORIZ_EPS = 1.0E-3D;
+    private static final int CLIENT_MIN_LERP_STEPS = 6;
+    private static final float CLIENT_ROTATION_SMOOTH_ALPHA = 0.35F;
 
     private static final double TICK_SECONDS = 1.0D / 20.0D;
     
@@ -672,7 +674,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.lerpZ = z;
         this.lerpYRot = yaw;
         this.lerpXRot = pitch;
-        this.lerpSteps = posRotationIncrements;
+        this.lerpSteps = Math.max(CLIENT_MIN_LERP_STEPS, posRotationIncrements);
     }
 
     private void updateQuaternionFromEuler() {
@@ -1698,7 +1700,21 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 drone.lerpSteps--;
             }
 
-            drone.qRotation.set(syncedQ);
+            final float dot = drone.qRotation.x * syncedQ.x
+                + drone.qRotation.y * syncedQ.y
+                + drone.qRotation.z * syncedQ.z
+                + drone.qRotation.w * syncedQ.w;
+            if (dot < 0.0F) {
+                syncedQ.mul(-1.0F);
+            }
+
+            final float absDot = Math.abs(dot);
+            if (absDot < 0.2F) {
+                drone.qRotation.set(syncedQ);
+            } else {
+                drone.qRotation.slerp(syncedQ, CLIENT_ROTATION_SMOOTH_ALPHA);
+                drone.qRotation.normalize();
+            }
             drone.applyVisualOrientationFromQuaternion(drone.qRotation);
             drone.setRot(drone.getYRot(), drone.getXRot());
 
