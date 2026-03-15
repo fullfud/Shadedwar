@@ -3,6 +3,7 @@ package com.fullfud.fullfud.client;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.BlockPos;
 import net.minecraft.util.Mth;
 
 import java.util.Locale;
@@ -23,6 +24,7 @@ public final class FpvOsdHudRenderer {
     private static final int SYM_MAH = 0x07;
     private static final int SYM_HOMEFLAG = 0x11;
     private static final int SYM_ARROW_EAST = 0x64;
+    private static final int SYM_ARROW_SOUTH = 0x60;
     private static final int SYM_LINK_QUALITY = 0x7B;
     private static final int SYM_THR = 0x04;
     private static final int SYM_TEMPERATURE = 0x7A;
@@ -50,13 +52,25 @@ public final class FpvOsdHudRenderer {
     private static final BfGlyphFont GLYPH_FONT = new BfGlyphFont();
     private static final int OSD_FG_COLOR = 0xFFFFFFFF;
     private static final int OSD_BG_COLOR = 0xCC000000;
+    private static final int BATTERY_MAX_TICKS = 12000;
+    private static final int BATTERY_CAPACITY_MAH = 1500;
 
     private static UUID sessionDroneId;
     private static long sessionStartMillis;
     private static long lastFrameNanos;
+    private static int lastBatteryTicks = -1;
+    private static int batteryWindowStartTicks = -1;
+    private static long batteryWindowStartNanos;
+    private static float batteryWindowAmps;
     private static int mahUsed;
     private static float headingSmooth;
     private static float horizonOffsetSmoothPx;
+    private static float ampSmooth;
+    private static float tempSmooth;
+    private static double launchX;
+    private static double launchY;
+    private static double launchZ;
+    private static double lastDroneY;
 
     private FpvOsdHudRenderer() {
     }
@@ -85,9 +99,19 @@ public final class FpvOsdHudRenderer {
             sessionDroneId = drone.getUUID();
             sessionStartMillis = nowMillis;
             lastFrameNanos = nowNanos;
+            lastBatteryTicks = Mth.clamp(drone.getBatteryTicks(), 0, BATTERY_MAX_TICKS);
+            batteryWindowStartTicks = lastBatteryTicks;
+            batteryWindowStartNanos = nowNanos;
+            batteryWindowAmps = 0.0f;
             mahUsed = 0;
             headingSmooth = 0.0f;
             horizonOffsetSmoothPx = 0.0f;
+            ampSmooth = 0.0f;
+            launchX = drone.getX();
+            launchY = drone.getY();
+            launchZ = drone.getZ();
+            lastDroneY = launchY;
+            tempSmooth = 22.0f;
         }
 
         final double dtSeconds = lastFrameNanos == 0L ? 0.0 : (nowNanos - lastFrameNanos) / 1_000_000_000.0;
@@ -109,15 +133,54 @@ public final class FpvOsdHudRenderer {
         final int speed = Mth.clamp((int) Math.round(groundSpeedKmh), 0, 999);
         final int altitude = (int) Math.round(drone.getY());
         final int timerSeconds = sessionStartMillis > 0L ? (int) ((nowMillis - sessionStartMillis) / 1000L) : 0;
-        final int homeDistance = Mth.clamp((int) Math.round(distanceToPilot), 0, 99999);
+        final double homeDx = launchX - drone.getX();
+        final double homeDz = launchZ - drone.getZ();
+        final int homeDistance = Mth.clamp((int) Math.round(Math.sqrt(homeDx * homeDx + homeDz * homeDz)), 0, 99999);
         final float displayMax = Math.max(throttleDisplayMax, 0.01f);
         final int throttle = Mth.clamp(Math.round(Mth.clamp(drone.getThrust() / displayMax, 0.0f, 1.0f) * 100.0f), 0, 100);
-        final int amperageDeci = Mth.clamp(Math.round(70.0f + throttle * 4.5f), 0, 800);
-        if (dtSeconds > 0.0) {
-            final double amps = amperageDeci / 10.0;
-            mahUsed = Mth.clamp(mahUsed + (int) Math.round((amps * 1000.0 * dtSeconds) / 3600.0), 0, 99999);
+        final int batteryTicks = Mth.clamp(drone.getBatteryTicks(), 0, BATTERY_MAX_TICKS);
+        if (lastBatteryTicks < 0) {
+            lastBatteryTicks = batteryTicks;
         }
-        final int temperatureC = Mth.clamp(Math.round(20.0f + throttle * 0.55f), -20, 120);
+        final int consumedTicks = Math.max(0, lastBatteryTicks - batteryTicks);
+        lastBatteryTicks = batteryTicks;
+        if (batteryWindowStartTicks < 0) {
+            batteryWindowStartTicks = batteryTicks;
+            batteryWindowStartNanos = nowNanos;
+        }
+        final long batteryWindowElapsedNanos = nowNanos - batteryWindowStartNanos;
+        if (batteryWindowElapsedNanos >= 500_000_000L) {
+            final int drainedTicks = Math.max(0, batteryWindowStartTicks - batteryTicks);
+            final double windowSeconds = batteryWindowElapsedNanos / 1_000_000_000.0;
+            if (windowSeconds > 0.0) {
+                final double mahPerSecond = (drainedTicks * (double) BATTERY_CAPACITY_MAH) / (BATTERY_MAX_TICKS * windowSeconds);
+                batteryWindowAmps = (float) (mahPerSecond * 3.6);
+            }
+            batteryWindowStartTicks = batteryTicks;
+            batteryWindowStartNanos = nowNanos;
+        }
+
+        final double ampFromFlight = 4.0 + drone.getThrust() * 24.0 + speedMs * 0.32;
+        final double ampTarget = batteryWindowAmps > 0.0f
+                ? (batteryWindowAmps * 0.55 + ampFromFlight * 0.45)
+                : ampFromFlight;
+        final float ampAlpha = dtSeconds > 0.0 ? (float) Mth.clamp(dtSeconds * 2.2, 0.02, 0.10) : 0.06f;
+        ampSmooth += (float) ((ampTarget - ampSmooth) * ampAlpha);
+        final int amperageDeci = Mth.clamp(Math.round(ampSmooth * 10.0f), 0, 800);
+
+        mahUsed = Mth.clamp(Math.round(((BATTERY_MAX_TICKS - batteryTicks) / (float) BATTERY_MAX_TICKS) * BATTERY_CAPACITY_MAH), 0, 99999);
+
+        final double verticalSpeed = dtSeconds > 0.0001 ? (drone.getY() - lastDroneY) / dtSeconds : 0.0;
+        lastDroneY = drone.getY();
+        float ambientTemp = 22.0f;
+        if (minecraft.level != null) {
+            final BlockPos dronePos = BlockPos.containing(drone.getX(), drone.getY(), drone.getZ());
+            final float biomeBase = minecraft.level.getBiome(dronePos).value().getBaseTemperature();
+            ambientTemp = 8.0f + biomeBase * 18.0f;
+        }
+        final float tempTarget = (float) (ambientTemp + ampSmooth * 0.75f + drone.getThrust() * 10.0f - speedMs * 0.28f + Math.max(0.0, verticalSpeed) * 0.12f);
+        tempSmooth += (tempTarget - tempSmooth) * 0.07f;
+        final int temperatureC = Mth.clamp(Math.round(tempSmooth), -20, 120);
 
         float rawHeading = normalizeDegrees(drone.getCameraOrientation(minecraft.getPartialTick()).yaw());
         if (!Float.isFinite(rawHeading)) {
@@ -128,6 +191,11 @@ public final class FpvOsdHudRenderer {
         }
         headingSmooth = lerpAngleDegrees(headingSmooth, rawHeading, 0.22f);
         final int heading = Math.floorMod(Math.round(headingSmooth), 360);
+        final int headingArrowSymbol = directionArrowSymbol(headingSmooth);
+
+        final float bearingToHome = (float) Math.toDegrees(Math.atan2(-homeDx, homeDz));
+        final float relativeHomeHeading = Mth.wrapDegrees(bearingToHome - headingSmooth);
+        final int homeDirectionSymbol = directionArrowSymbol(relativeHomeHeading);
 
         final float pitch = Mth.clamp(drone.getVisualPitch(minecraft.getPartialTick()), -75.0f, 75.0f);
         final float targetHorizonOffsetPx = -(pitch / 75.0f) * (cellH * 2.0f);
@@ -147,8 +215,8 @@ public final class FpvOsdHudRenderer {
         drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 1, 4, concat(new int[]{SYM_ALTITUDE}, ascii(String.valueOf(altitude)), new int[]{SYM_METRE}));
         drawCrosshair(guiGraphics, gridX, gridY, cellW, cellH, 14, 7);
         drawHorizon(guiGraphics, gridX, gridY, cellW, cellH, 14, 7, horizonOffsetSmoothPx);
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 3, concat(new int[]{SYM_HOMEFLAG}, ascii(String.valueOf(homeDistance)), new int[]{SYM_METRE}));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 4, concat(new int[]{SYM_ARROW_EAST}, ascii(String.valueOf(heading))));
+        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 3, concat(new int[]{homeDirectionSymbol}, ascii(String.valueOf(homeDistance)), new int[]{SYM_METRE}));
+        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 4, concat(new int[]{headingArrowSymbol}, ascii(String.valueOf(heading))));
         drawCompassBarSmooth(guiGraphics, gridX, gridY, cellW, cellH, 10, 0, headingSmooth);
         int linkSym = GLYPH_FONT.hasVisiblePixels(SYM_LINK_QUALITY) ? SYM_LINK_QUALITY : SYM_RSSI;
         drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 5, concat(new int[]{linkSym}, ascii(String.valueOf(linkQuality))));
@@ -303,6 +371,15 @@ public final class FpvOsdHudRenderer {
     private static float lerpAngleDegrees(float current, float target, float alpha) {
         float delta = Mth.wrapDegrees(target - current);
         return normalizeDegrees(current + delta * Mth.clamp(alpha, 0.0f, 1.0f));
+    }
+
+    private static int directionArrowSymbol(float headingDegrees) {
+        int heading = Math.round(normalizeDegrees(headingDegrees));
+        int direction = (heading * 16 + 180) / 360;
+        direction = Math.floorMod(direction, 16);
+        direction = 16 - direction;
+        direction = (direction + 8) % 16;
+        return SYM_ARROW_SOUTH + direction;
     }
 
     private static String formatTime(int seconds) {
