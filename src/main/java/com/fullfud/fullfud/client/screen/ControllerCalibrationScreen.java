@@ -8,33 +8,37 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.util.Mth;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
-
-import java.util.Arrays;
 
 @OnlyIn(Dist.CLIENT)
 public class ControllerCalibrationScreen extends Screen {
     private static final Component TITLE = Component.translatable("screen.fullfud.calibration.title");
     private static final int BAR_WIDTH = 120;
-    private static final int BAR_HEIGHT = 10;
-    private static final float ASSIGN_THRESHOLD = 0.35F;
+    private static final int BAR_HEIGHT = 8;
+    private static final float ASSIGN_THRESHOLD = 0.3F;
+    private static final int ROW_COUNT = 5;
+    private static final int ARM_ROW = 4;
 
     private final ControllerCalibration targetCalibration;
     private final ControllerCalibration workingCalibration;
 
-    private Button actionButton;
+    private Button controllerButton;
+    private Button stickWizardButton;
+    private Button armWizardButton;
+    private Button rangeButton;
+    private Button saveButton;
     private Button cancelButton;
-    private final Button[] invertButtons = new Button[ControllerCalibration.AXIS_COUNT];
+    private final Button[] assignButtons = new Button[ROW_COUNT];
+    private final Button[] invertButtons = new Button[ROW_COUNT];
 
-    private final boolean[] usedAxes = new boolean[32];
     private float[] baselineAxes = new float[0];
     private byte[] baselineButtons = new byte[0];
     private float[] liveAxes = new float[0];
     private byte[] liveButtons = new byte[0];
-    private String controllerName = "";
-
-    private Step step = Step.REVIEW;
+    private String liveControllerName = "";
+    private int activeAssignRow = -1;
 
     public ControllerCalibrationScreen(final ControllerCalibration calibration) {
         super(TITLE);
@@ -44,100 +48,161 @@ public class ControllerCalibrationScreen extends Screen {
 
     @Override
     protected void init() {
-        final int cx = width / 2;
-        final int bottomY = height - 40;
+        final int left = width / 2 - 155;
+        final int top = 46;
 
-        actionButton = Button.builder(Component.translatable("screen.fullfud.calibration.waiting"), button -> onAction())
-            .bounds(cx - 105, bottomY, 100, 20)
-            .build();
-        cancelButton = Button.builder(Component.translatable("screen.fullfud.calibration.cancel"), button -> onClose())
-            .bounds(cx + 5, bottomY, 100, 20)
-            .build();
+        controllerButton = addRenderableWidget(Button.builder(Component.empty(), button -> openControllerSelection())
+            .bounds(left, top, 310, 20)
+            .build());
 
-        addInvertButton(ControllerCalibration.AXIS_THROTTLE, cx - 105, bottomY - 48);
-        addInvertButton(ControllerCalibration.AXIS_YAW, cx + 5, bottomY - 48);
-        addInvertButton(ControllerCalibration.AXIS_PITCH, cx - 105, bottomY - 24);
-        addInvertButton(ControllerCalibration.AXIS_ROLL, cx + 5, bottomY - 24);
+        stickWizardButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.fullfud.calibration.wizard.sticks"),
+                button -> openStickWizard()
+            )
+            .bounds(left, top + 24, 152, 20)
+            .build());
+        armWizardButton = addRenderableWidget(Button.builder(
+                Component.translatable("screen.fullfud.calibration.wizard.arm"),
+                button -> openArmWizard()
+            )
+            .bounds(left + 158, top + 24, 152, 20)
+            .build());
 
-        addRenderableWidget(actionButton);
-        addRenderableWidget(cancelButton);
+        for (int row = 0; row < ROW_COUNT; row++) {
+            final int y = top + 68 + row * 26;
+            final int currentRow = row;
+            assignButtons[row] = addRenderableWidget(Button.builder(Component.empty(), button -> toggleAssignment(currentRow))
+                .bounds(left + 140, y, 90, 20)
+                .build());
+            invertButtons[row] = addRenderableWidget(Button.builder(Component.empty(), button -> toggleInversion(currentRow))
+                .bounds(left + 236, y, 74, 20)
+                .build());
+        }
 
-        beginStepListening();
-        refreshActionButton();
-        refreshInvertButtons();
+        rangeButton = addRenderableWidget(Button.builder(Component.empty(), button -> toggleRangeCalibration())
+            .bounds(left, height - 54, 150, 20)
+            .build());
+        saveButton = addRenderableWidget(Button.builder(Component.translatable("screen.fullfud.calibration.save"), button -> saveAndClose())
+            .bounds(width / 2 - 75, height - 28, 150, 20)
+            .build());
+        cancelButton = addRenderableWidget(Button.builder(Component.translatable("screen.fullfud.calibration.cancel"), button -> onClose())
+            .bounds(left + 160, height - 54, 150, 20)
+            .build());
+
+        refreshLiveState();
+        refreshButtons();
     }
 
     @Override
     public void tick() {
         super.tick();
+        refreshLiveState();
 
-        final FpvControllerInput.RawJoystickState rawState = FpvControllerInput.snapshotRawState();
+        if (workingCalibration.isSampling()) {
+            workingCalibration.sampleAxes(liveAxes);
+        } else if (activeAssignRow >= 0) {
+            if (activeAssignRow == ARM_ROW) {
+                detectArmAssignment();
+            } else {
+                detectAxisAssignment(activeAssignRow);
+            }
+        }
+
+        refreshButtons();
+    }
+
+    public void handleControllerChosen(final FpvControllerInput.ConnectedController controller) {
+        if (controller == null) {
+            return;
+        }
+        workingCalibration.setControllerName(controller.name());
+        beginListening();
+        persistWorkingCalibration();
+        if (minecraft != null) {
+            minecraft.setScreen(new ControllerStickWizardScreen(this, workingCalibration));
+        }
+    }
+
+    public String getSelectedControllerName() {
+        return workingCalibration.getControllerName();
+    }
+
+    public void persistWorkingCalibration() {
+        targetCalibration.copyFrom(workingCalibration);
+        ControllerCalibrationStore.save(targetCalibration);
+    }
+
+    private void refreshLiveState() {
+        final FpvControllerInput.RawJoystickState rawState = FpvControllerInput.snapshotRawState(workingCalibration);
         if (rawState == null) {
             liveAxes = new float[0];
             liveButtons = new byte[0];
-            controllerName = "";
-            refreshActionButton();
-            refreshInvertButtons();
+            liveControllerName = "";
             return;
         }
 
         liveAxes = rawState.axes();
         liveButtons = rawState.buttons();
-        controllerName = rawState.name();
-        workingCalibration.setControllerName(controllerName);
-
-        if (step == Step.THROTTLE) {
-            detectAxisAssignment(ControllerCalibration.AXIS_THROTTLE, Step.YAW);
-        } else if (step == Step.YAW) {
-            detectAxisAssignment(ControllerCalibration.AXIS_YAW, Step.PITCH);
-        } else if (step == Step.PITCH) {
-            detectAxisAssignment(ControllerCalibration.AXIS_PITCH, Step.ROLL);
-        } else if (step == Step.ROLL) {
-            detectAxisAssignment(ControllerCalibration.AXIS_ROLL, Step.ARM);
-        } else if (step == Step.ARM) {
-            detectArmBinding();
-        } else if (step == Step.RANGE && workingCalibration.isSampling()) {
-            workingCalibration.sampleAxes(
-                logicalRaw(ControllerCalibration.AXIS_ROLL),
-                logicalRaw(ControllerCalibration.AXIS_PITCH),
-                logicalRaw(ControllerCalibration.AXIS_YAW),
-                logicalRaw(ControllerCalibration.AXIS_THROTTLE)
-            );
+        liveControllerName = rawState.name();
+        if (workingCalibration.getControllerName().isBlank()) {
+            workingCalibration.setControllerName(liveControllerName);
         }
-
-        refreshActionButton();
-        refreshInvertButtons();
     }
 
-    private void addInvertButton(final int logicalAxis, final int x, final int y) {
-        final Button button = Button.builder(Component.empty(), widget -> toggleAxisInversion(logicalAxis))
-            .bounds(x, y, 100, 20)
-            .build();
-        invertButtons[logicalAxis] = addRenderableWidget(button);
+    private void openControllerSelection() {
+        if (minecraft == null) {
+            return;
+        }
+        minecraft.setScreen(new ControllerSelectScreen(this));
     }
 
-    private void detectAxisAssignment(final int logicalAxis, final Step nextStep) {
+    public void openStickWizard() {
+        if (minecraft == null || !hasControllerInput()) {
+            return;
+        }
+        minecraft.setScreen(new ControllerStickWizardScreen(this, workingCalibration));
+    }
+
+    public void openArmWizard() {
+        if (minecraft == null || !hasControllerInput()) {
+            return;
+        }
+        minecraft.setScreen(new ControllerArmWizardScreen(this, workingCalibration));
+    }
+
+    private void toggleAssignment(final int row) {
+        if (!hasControllerInput()) {
+            return;
+        }
+        if (workingCalibration.isSampling()) {
+            return;
+        }
+        if (activeAssignRow == row) {
+            activeAssignRow = -1;
+            return;
+        }
+        activeAssignRow = row;
+        beginListening();
+    }
+
+    private void detectAxisAssignment(final int logicalAxis) {
         final int axisIndex = detectMovedAxis();
         if (axisIndex < 0) {
             return;
         }
-
-        final float delta = safeGet(liveAxes, axisIndex) - safeGet(baselineAxes, axisIndex);
+        final float delta = deltaForAxis(axisIndex);
         workingCalibration.setAxisMapping(logicalAxis, axisIndex);
-        final boolean invertPositiveDirection =
-            logicalAxis == ControllerCalibration.AXIS_YAW || logicalAxis == ControllerCalibration.AXIS_ROLL;
-        workingCalibration.setAxisInverted(logicalAxis, invertPositiveDirection ? delta > 0.0F : delta < 0.0F);
-        if (axisIndex >= 0 && axisIndex < usedAxes.length) {
-            usedAxes[axisIndex] = true;
-        }
-        moveToStep(nextStep);
+        workingCalibration.setAxisInverted(logicalAxis, delta < 0.0F);
+        activeAssignRow = -1;
+        persistWorkingCalibration();
     }
 
-    private void detectArmBinding() {
+    private void detectArmAssignment() {
         final int buttonIndex = detectPressedButton();
         if (buttonIndex >= 0) {
             workingCalibration.setArmBinding(buttonIndex, false);
-            moveToStep(Step.CENTER);
+            activeAssignRow = -1;
+            persistWorkingCalibration();
             return;
         }
 
@@ -145,21 +210,69 @@ public class ControllerCalibrationScreen extends Screen {
         if (axisIndex < 0) {
             return;
         }
-
-        final float delta = safeGet(liveAxes, axisIndex) - safeGet(baselineAxes, axisIndex);
+        final float delta = deltaForAxis(axisIndex);
         workingCalibration.setArmBinding(-axisIndex - 1, delta < 0.0F);
-        moveToStep(Step.CENTER);
+        activeAssignRow = -1;
+        persistWorkingCalibration();
+    }
+
+    private void toggleInversion(final int row) {
+        if (row == ARM_ROW) {
+            if (!workingCalibration.hasArmBinding()) {
+                return;
+            }
+            workingCalibration.setArmBinding(workingCalibration.getArmBinding(), !workingCalibration.isArmInverted());
+            persistWorkingCalibration();
+            return;
+        }
+
+        if (workingCalibration.getAxisMapping(row) < 0) {
+            return;
+        }
+        workingCalibration.setAxisInverted(row, !workingCalibration.isAxisInverted(row));
+        persistWorkingCalibration();
+    }
+
+    private void toggleRangeCalibration() {
+        if (!hasControllerInput() || !workingCalibration.hasCompleteAxisMapping()) {
+            return;
+        }
+
+        if (workingCalibration.isSampling()) {
+            workingCalibration.finishRangeSampling();
+            persistWorkingCalibration();
+            return;
+        }
+
+        workingCalibration.startRangeSampling(liveAxes.length, liveAxes);
+        activeAssignRow = -1;
+    }
+
+    private void saveAndClose() {
+        if (workingCalibration.isSampling()) {
+            workingCalibration.finishRangeSampling();
+        }
+        persistWorkingCalibration();
+        onClose();
+    }
+
+    private void beginListening() {
+        final FpvControllerInput.RawJoystickState rawState = FpvControllerInput.snapshotRawState(workingCalibration);
+        if (rawState == null) {
+            baselineAxes = new float[0];
+            baselineButtons = new byte[0];
+            return;
+        }
+        baselineAxes = rawState.axes().clone();
+        baselineButtons = rawState.buttons().clone();
     }
 
     private int detectMovedAxis() {
         int bestAxis = -1;
         float bestDelta = ASSIGN_THRESHOLD;
-        final int max = Math.min(liveAxes.length, baselineAxes.length);
-        for (int i = 0; i < max; i++) {
-            if (i < usedAxes.length && usedAxes[i]) {
-                continue;
-            }
-            final float delta = Math.abs(liveAxes[i] - baselineAxes[i]);
+        final int count = Math.min(liveAxes.length, baselineAxes.length);
+        for (int i = 0; i < count; i++) {
+            final float delta = Math.abs(deltaForAxis(i));
             if (delta > bestDelta) {
                 bestDelta = delta;
                 bestAxis = i;
@@ -169,8 +282,8 @@ public class ControllerCalibrationScreen extends Screen {
     }
 
     private int detectPressedButton() {
-        final int max = Math.min(liveButtons.length, baselineButtons.length);
-        for (int i = 0; i < max; i++) {
+        final int count = Math.min(liveButtons.length, baselineButtons.length);
+        for (int i = 0; i < count; i++) {
             if (liveButtons[i] != baselineButtons[i] && liveButtons[i] != 0) {
                 return i;
             }
@@ -178,226 +291,120 @@ public class ControllerCalibrationScreen extends Screen {
         return -1;
     }
 
-    private void moveToStep(final Step nextStep) {
-        step = nextStep;
-        if (step == Step.REVIEW || step == Step.CENTER) {
-            workingCalibration.cancelCalibration();
-        } else if (step == Step.RANGE) {
-            workingCalibration.startCalibration();
-        }
-        beginStepListening();
-        refreshActionButton();
-        refreshInvertButtons();
+    private float deltaForAxis(final int axisIndex) {
+        final float current = axisIndex >= 0 && axisIndex < liveAxes.length && Float.isFinite(liveAxes[axisIndex]) ? liveAxes[axisIndex] : 0.0F;
+        final float baseline = axisIndex >= 0 && axisIndex < baselineAxes.length && Float.isFinite(baselineAxes[axisIndex]) ? baselineAxes[axisIndex] : 0.0F;
+        return current - baseline;
     }
 
-    private void beginStepListening() {
-        final FpvControllerInput.RawJoystickState rawState = FpvControllerInput.snapshotRawState();
-        if (rawState == null) {
-            baselineAxes = new float[0];
-            baselineButtons = new byte[0];
-            liveAxes = new float[0];
-            liveButtons = new byte[0];
-            controllerName = "";
-            return;
-        }
-        baselineAxes = rawState.axes().clone();
-        baselineButtons = rawState.buttons().clone();
-        liveAxes = rawState.axes();
-        liveButtons = rawState.buttons();
-        controllerName = rawState.name();
-        workingCalibration.setControllerName(controllerName);
+    private boolean hasControllerInput() {
+        return liveAxes.length > 0 && !workingCalibration.getControllerName().isBlank();
     }
 
-    private void refreshActionButton() {
-        if (actionButton == null) {
+    private void refreshButtons() {
+        if (controllerButton == null) {
             return;
         }
 
-        final boolean controllerPresent = liveAxes.length > 0 || FpvControllerInput.snapshotRawState() != null;
-        if (step == Step.REVIEW) {
-            actionButton.setMessage(Component.translatable("screen.fullfud.calibration.start"));
-            actionButton.active = controllerPresent;
-        } else if (step == Step.CENTER) {
-            actionButton.setMessage(Component.translatable("screen.fullfud.calibration.record_center"));
-            actionButton.active = controllerPresent;
-        } else if (step == Step.RANGE) {
-            actionButton.setMessage(Component.translatable("screen.fullfud.calibration.finish"));
-            actionButton.active = controllerPresent;
-        } else {
-            actionButton.setMessage(Component.translatable("screen.fullfud.calibration.waiting"));
-            actionButton.active = false;
+        controllerButton.setMessage(Component.translatable(
+            "screen.fullfud.calibration.controller.button",
+            workingCalibration.getControllerName().isBlank() ? "-" : workingCalibration.getControllerName()
+        ));
+        stickWizardButton.active = hasControllerInput() && !workingCalibration.isSampling();
+        armWizardButton.active = hasControllerInput() && !workingCalibration.isSampling();
+
+        rangeButton.setMessage(Component.translatable(
+            workingCalibration.isSampling()
+                ? "screen.fullfud.calibration.range.finish"
+                : "screen.fullfud.calibration.range.start"
+        ));
+        rangeButton.active = hasControllerInput() && workingCalibration.hasCompleteAxisMapping();
+
+        for (int row = 0; row < ROW_COUNT; row++) {
+            final Button assignButton = assignButtons[row];
+            final Button invertButton = invertButtons[row];
+            assignButton.setMessage(bindingLabel(row));
+            assignButton.active = hasControllerInput() && !workingCalibration.isSampling();
+
+            invertButton.setMessage(invertLabel(row));
+            invertButton.active = row == ARM_ROW
+                ? workingCalibration.hasArmBinding() && !workingCalibration.isSampling()
+                : workingCalibration.getAxisMapping(row) >= 0 && !workingCalibration.isSampling();
         }
+
+        saveButton.active = workingCalibration.hasCompleteAxisMapping() && workingCalibration.hasArmBinding();
     }
 
-    private void onAction() {
-        if (step == Step.REVIEW) {
-            startCalibrationFlow();
-            return;
-        }
-
-        if (step == Step.CENTER) {
-            workingCalibration.recordCenter(
-                logicalRaw(ControllerCalibration.AXIS_ROLL),
-                logicalRaw(ControllerCalibration.AXIS_PITCH),
-                logicalRaw(ControllerCalibration.AXIS_YAW),
-                logicalRaw(ControllerCalibration.AXIS_THROTTLE)
-            );
-            moveToStep(Step.RANGE);
-            return;
-        }
-
-        if (step == Step.RANGE) {
-            workingCalibration.finishCalibration();
-            persistWorkingCalibration();
-            onClose();
-        }
+    private Component bindingLabel(final int row) {
+        final boolean active = activeAssignRow == row;
+        final String key = active
+            ? "screen.fullfud.calibration.assign.waiting"
+            : "screen.fullfud.calibration.assign.button";
+        return Component.translatable(key, describeBinding(row));
     }
 
-    private void startCalibrationFlow() {
-        workingCalibration.reset();
-        Arrays.fill(usedAxes, false);
-        if (!controllerName.isBlank()) {
-            workingCalibration.setControllerName(controllerName);
-        }
-        moveToStep(Step.THROTTLE);
+    private Component invertLabel(final int row) {
+        final boolean inverted = row == ARM_ROW ? workingCalibration.isArmInverted() : workingCalibration.isAxisInverted(row);
+        return Component.translatable(
+            "screen.fullfud.calibration.invert.button",
+            shortRowName(row),
+            Component.translatable(
+                inverted
+                    ? "screen.fullfud.calibration.invert.on.short"
+                    : "screen.fullfud.calibration.invert.off.short"
+            )
+        );
     }
 
-    private void toggleAxisInversion(final int logicalAxis) {
-        if (logicalAxis < 0 || logicalAxis >= ControllerCalibration.AXIS_COUNT) {
-            return;
-        }
-        if (workingCalibration.getAxisMapping(logicalAxis) < 0) {
-            return;
-        }
-        workingCalibration.setAxisInverted(logicalAxis, !workingCalibration.isAxisInverted(logicalAxis));
-        persistWorkingCalibration();
-        refreshInvertButtons();
-    }
-
-    private void persistWorkingCalibration() {
-        targetCalibration.copyFrom(workingCalibration);
-        ControllerCalibrationStore.save(targetCalibration);
-    }
-
-    private float logicalRaw(final int logicalAxis) {
-        return workingCalibration.readMappedAxis(liveAxes, logicalAxis);
-    }
-
-    private boolean isArmPressedNow() {
-        if (!workingCalibration.hasArmBinding()) {
-            return false;
-        }
-
-        if (!workingCalibration.isArmBindingAxis()) {
-            final int buttonIndex = workingCalibration.getArmButtonIndex();
-            return buttonIndex >= 0
-                && buttonIndex < liveButtons.length
-                && liveButtons[buttonIndex] != 0;
-        }
-
-        final int axisIndex = workingCalibration.getArmAxisIndex();
-        if (axisIndex < 0 || axisIndex >= liveAxes.length) {
-            return false;
-        }
-
-        float value = liveAxes[axisIndex];
-        if (workingCalibration.isArmInverted()) {
-            value = -value;
-        }
-        return value > 0.5F;
-    }
-
-    private static float safeGet(final float[] values, final int index) {
-        if (values == null || index < 0 || index >= values.length) {
-            return 0.0F;
-        }
-        final float value = values[index];
-        return Float.isFinite(value) ? value : 0.0F;
-    }
-
-    private static Component assignmentLabel(final int physicalAxis, final boolean inverted) {
-        if (physicalAxis < 0) {
-            return Component.translatable("screen.fullfud.calibration.binding.none");
-        }
-        final MutableComponent label = Component.translatable("screen.fullfud.calibration.binding.axis", physicalAxis);
-        if (inverted) {
-            label.append(Component.literal(" "))
-                .append(Component.translatable("screen.fullfud.calibration.binding.inverted"));
-        }
-        return label;
-    }
-
-    private Component armBindingLabel() {
-        if (!workingCalibration.hasArmBinding()) {
-            return Component.translatable("screen.fullfud.calibration.binding.none");
-        }
-        if (workingCalibration.isArmBindingAxis()) {
-            final MutableComponent label = Component.translatable(
-                "screen.fullfud.calibration.binding.axis",
-                workingCalibration.getArmAxisIndex()
-            );
-            if (workingCalibration.isArmInverted()) {
-                label.append(Component.literal(" "))
-                    .append(Component.translatable("screen.fullfud.calibration.binding.inverted"));
+    private Component describeBinding(final int row) {
+        if (row == ARM_ROW) {
+            if (!workingCalibration.hasArmBinding()) {
+                return Component.translatable("screen.fullfud.calibration.binding.none");
             }
-            return label;
+            return Component.literal(FpvControllerInput.describeArmBinding(
+                workingCalibration,
+                FpvControllerInput.findJoystickId(workingCalibration)
+            ));
         }
-        return Component.translatable("screen.fullfud.calibration.binding.button", workingCalibration.getArmButtonIndex());
+
+        final int mapping = workingCalibration.getAxisMapping(row);
+        if (mapping < 0) {
+            return Component.translatable("screen.fullfud.calibration.binding.none");
+        }
+        return Component.literal(FpvControllerInput.formatChannelLabel(mapping));
     }
 
     private Component currentInstruction() {
-        return switch (step) {
-            case REVIEW -> Component.translatable("screen.fullfud.calibration.instruction_start");
-            case THROTTLE -> Component.translatable("screen.fullfud.calibration.wait_throttle");
-            case YAW -> Component.translatable("screen.fullfud.calibration.wait_yaw");
-            case PITCH -> Component.translatable("screen.fullfud.calibration.wait_pitch");
-            case ROLL -> Component.translatable("screen.fullfud.calibration.wait_roll");
-            case ARM -> Component.translatable("screen.fullfud.calibration.wait_arm");
-            case CENTER -> Component.translatable("screen.fullfud.calibration.instruction_center");
-            case RANGE -> Component.translatable("screen.fullfud.calibration.instruction_extremes");
+        if (workingCalibration.isSampling()) {
+            return Component.translatable("screen.fullfud.calibration.range.instruction");
+        }
+        return switch (activeAssignRow) {
+            case ControllerCalibration.AXIS_THROTTLE -> Component.translatable("screen.fullfud.calibration.wait_throttle");
+            case ControllerCalibration.AXIS_YAW -> Component.translatable("screen.fullfud.calibration.wait_yaw");
+            case ControllerCalibration.AXIS_PITCH -> Component.translatable("screen.fullfud.calibration.wait_pitch");
+            case ControllerCalibration.AXIS_ROLL -> Component.translatable("screen.fullfud.calibration.wait_roll");
+            case ARM_ROW -> Component.translatable("screen.fullfud.calibration.wait_arm");
+            default -> Component.translatable("screen.fullfud.calibration.instruction_main");
         };
     }
 
-    private static Component axisName(final int logicalAxis) {
-        return switch (logicalAxis) {
+    private static Component rowName(final int row) {
+        return switch (row) {
             case ControllerCalibration.AXIS_ROLL -> Component.translatable("screen.fullfud.calibration.axis.roll");
             case ControllerCalibration.AXIS_PITCH -> Component.translatable("screen.fullfud.calibration.axis.pitch");
             case ControllerCalibration.AXIS_YAW -> Component.translatable("screen.fullfud.calibration.axis.yaw");
             case ControllerCalibration.AXIS_THROTTLE -> Component.translatable("screen.fullfud.calibration.axis.throttle");
-            default -> Component.translatable("screen.fullfud.calibration.axis.unknown");
+            default -> Component.translatable("screen.fullfud.calibration.axis.arm");
         };
     }
 
-    private static Component summaryLine(final Component axisName, final Component binding) {
-        return Component.empty().append(axisName).append(": ").append(binding);
-    }
-
-    private void refreshInvertButtons() {
-        for (int logicalAxis = 0; logicalAxis < invertButtons.length; logicalAxis++) {
-            final Button button = invertButtons[logicalAxis];
-            if (button == null) {
-                continue;
-            }
-            button.setMessage(Component.translatable(
-                "screen.fullfud.calibration.invert.button",
-                shortAxisName(logicalAxis),
-                Component.translatable(
-                    workingCalibration.isAxisInverted(logicalAxis)
-                        ? "screen.fullfud.calibration.invert.on.short"
-                        : "screen.fullfud.calibration.invert.off.short"
-                )
-            ));
-            button.active = workingCalibration.getAxisMapping(logicalAxis) >= 0;
-        }
-    }
-
-    private static Component shortAxisName(final int logicalAxis) {
-        return switch (logicalAxis) {
+    private static Component shortRowName(final int row) {
+        return switch (row) {
             case ControllerCalibration.AXIS_ROLL -> Component.translatable("screen.fullfud.calibration.axis.roll.short");
             case ControllerCalibration.AXIS_PITCH -> Component.translatable("screen.fullfud.calibration.axis.pitch.short");
             case ControllerCalibration.AXIS_YAW -> Component.translatable("screen.fullfud.calibration.axis.yaw.short");
             case ControllerCalibration.AXIS_THROTTLE -> Component.translatable("screen.fullfud.calibration.axis.throttle.short");
-            default -> Component.translatable("screen.fullfud.calibration.axis.unknown");
+            default -> Component.translatable("screen.fullfud.calibration.axis.arm.short");
         };
     }
 
@@ -407,23 +414,19 @@ public class ControllerCalibrationScreen extends Screen {
         super.render(graphics, mouseX, mouseY, partialTick);
 
         final int cx = width / 2;
-        int y = 24;
+        final int left = width / 2 - 155;
+        int y = 16;
 
         graphics.drawCenteredString(font, title, cx, y, 0xFFFFFF);
+        y += 14;
+        graphics.drawCenteredString(font, currentInstruction(), cx, y, 0xCCCCCC);
         y += 16;
-
-        if (controllerName.isBlank()) {
-            graphics.drawCenteredString(font, Component.translatable("screen.fullfud.calibration.controller_missing"), cx, y, 0xFF5555);
-        } else {
-            graphics.drawCenteredString(font, controllerName, cx, y, 0xAAAAAA);
-        }
-        y += 20;
 
         graphics.drawCenteredString(
             font,
             Component.translatable(
                 "screen.fullfud.calibration.debug.current_controller",
-                controllerName.isBlank() ? "-" : controllerName
+                liveControllerName.isBlank() ? "-" : liveControllerName
             ),
             cx,
             y,
@@ -434,7 +437,7 @@ public class ControllerCalibrationScreen extends Screen {
             font,
             Component.translatable(
                 "screen.fullfud.calibration.debug.saved_controller",
-                targetCalibration.getControllerName().isBlank() ? "-" : targetCalibration.getControllerName()
+                workingCalibration.getControllerName().isBlank() ? "-" : workingCalibration.getControllerName()
             ),
             cx,
             y,
@@ -446,7 +449,7 @@ public class ControllerCalibrationScreen extends Screen {
             Component.translatable(
                 "screen.fullfud.calibration.debug.ready_state",
                 Component.translatable(
-                    targetCalibration.isReady()
+                    workingCalibration.isReady()
                         ? "screen.fullfud.calibration.debug.yes"
                         : "screen.fullfud.calibration.debug.no"
                 ),
@@ -461,111 +464,113 @@ public class ControllerCalibrationScreen extends Screen {
         graphics.drawCenteredString(
             font,
             Component.translatable(
-                "screen.fullfud.calibration.debug.arm_state",
-                Component.translatable(
-                    isArmPressedNow()
-                        ? "screen.fullfud.calibration.debug.pressed"
-                        : "screen.fullfud.calibration.debug.not_pressed"
-                ),
-                armBindingLabel()
+                "screen.fullfud.calibration.debug.range_state",
+                workingCalibration.getRangeAxisCount()
             ),
             cx,
             y,
-            0xFFCC88
+            0xBBBBBB
         );
-        y += 14;
 
-        graphics.drawCenteredString(font, currentInstruction(), cx, y, 0xDDDDDD);
-        y += 24;
-
-        final float[] values = {
-            logicalRaw(ControllerCalibration.AXIS_ROLL),
-            logicalRaw(ControllerCalibration.AXIS_PITCH),
-            logicalRaw(ControllerCalibration.AXIS_YAW),
-            logicalRaw(ControllerCalibration.AXIS_THROTTLE)
-        };
-
-        for (int i = 0; i < ControllerCalibration.AXIS_COUNT; i++) {
-            final int barX = cx - BAR_WIDTH / 2;
-            final int barY = y;
-            final Component axisLabel = axisName(i);
-            final int axisLabelX = barX - 8 - font.width(axisLabel);
-
-            graphics.drawString(font, axisLabel, axisLabelX, barY + 1, 0xCCCCCC);
-            graphics.fill(barX, barY, barX + BAR_WIDTH, barY + BAR_HEIGHT, 0xFF333333);
-
-            final float norm = (values[i] + 1.0F) * 0.5F;
-            final int indicatorX = barX + (int) (norm * BAR_WIDTH);
-            graphics.fill(indicatorX - 2, barY, indicatorX + 2, barY + BAR_HEIGHT, 0xFF00FF88);
-
-            final int centerX = barX + BAR_WIDTH / 2;
-            graphics.fill(centerX, barY, centerX + 1, barY + BAR_HEIGHT, 0xFF666666);
-
-            if (step == Step.RANGE && workingCalibration.isSampling()) {
-                final float sampleMin = (workingCalibration.getSampleMin(i) + 1.0F) * 0.5F;
-                final float sampleMax = (workingCalibration.getSampleMax(i) + 1.0F) * 0.5F;
-                final int minX = barX + (int) (sampleMin * BAR_WIDTH);
-                final int maxX = barX + (int) (sampleMax * BAR_WIDTH);
-                graphics.fill(minX, barY, minX + 1, barY + BAR_HEIGHT, 0xFFFF4444);
-                graphics.fill(maxX, barY, maxX + 1, barY + BAR_HEIGHT, 0xFF4488FF);
+        int rowY = 116;
+        for (int row = 0; row < ROW_COUNT; row++) {
+            graphics.drawString(font, rowName(row), left, rowY + 6, 0xFFFFFF);
+            if (row != ARM_ROW) {
+                renderAxisPreview(graphics, left + 72, rowY + 6, row);
+            } else {
+                graphics.drawString(font, armPressedLabel(), left + 72, rowY + 6, 0xFFCC88);
             }
-
-            graphics.drawString(font, String.format("%.2f", values[i]), barX + BAR_WIDTH + 8, barY + 1, 0x999999);
-            y += BAR_HEIGHT + 12;
+            rowY += 26;
         }
 
-        y += 8;
-        graphics.drawCenteredString(font, summaryLine(
-            Component.translatable("screen.fullfud.calibration.axis.throttle"),
-            assignmentLabel(
-                workingCalibration.getAxisMapping(ControllerCalibration.AXIS_THROTTLE),
-                workingCalibration.isAxisInverted(ControllerCalibration.AXIS_THROTTLE)
-            )
-        ), cx, y, 0xBBBBBB);
-        y += 10;
-        graphics.drawCenteredString(font, summaryLine(
-            Component.translatable("screen.fullfud.calibration.axis.yaw"),
-            assignmentLabel(
-                workingCalibration.getAxisMapping(ControllerCalibration.AXIS_YAW),
-                workingCalibration.isAxisInverted(ControllerCalibration.AXIS_YAW)
-            )
-        ), cx, y, 0xBBBBBB);
-        y += 10;
-        graphics.drawCenteredString(font, summaryLine(
-            Component.translatable("screen.fullfud.calibration.axis.pitch"),
-            assignmentLabel(
-                workingCalibration.getAxisMapping(ControllerCalibration.AXIS_PITCH),
-                workingCalibration.isAxisInverted(ControllerCalibration.AXIS_PITCH)
-            )
-        ), cx, y, 0xBBBBBB);
-        y += 10;
-        graphics.drawCenteredString(font, summaryLine(
-            Component.translatable("screen.fullfud.calibration.axis.roll"),
-            assignmentLabel(
-                workingCalibration.getAxisMapping(ControllerCalibration.AXIS_ROLL),
-                workingCalibration.isAxisInverted(ControllerCalibration.AXIS_ROLL)
-            )
-        ), cx, y, 0xBBBBBB);
-        y += 10;
-        graphics.drawCenteredString(font, summaryLine(
-            Component.translatable("screen.fullfud.calibration.axis.arm"),
-            armBindingLabel()
-        ), cx, y, 0xBBBBBB);
+        graphics.drawCenteredString(
+            font,
+            statusLine(),
+            cx,
+            height - 72,
+            0xBBBBBB
+        );
+    }
+
+    private Component armPressedLabel() {
+        final boolean pressed;
+        if (!workingCalibration.hasArmBinding()) {
+            pressed = false;
+        } else if (workingCalibration.isArmBindingAxis()) {
+            final int axisIndex = workingCalibration.getArmAxisIndex();
+            float value = axisIndex >= 0 && axisIndex < liveAxes.length ? liveAxes[axisIndex] : 0.0F;
+            if (workingCalibration.isArmInverted()) {
+                value = -value;
+            }
+            pressed = value > 0.1F;
+        } else {
+            final int buttonIndex = workingCalibration.getArmButtonIndex();
+            pressed = buttonIndex >= 0 && buttonIndex < liveButtons.length && liveButtons[buttonIndex] != 0;
+        }
+        return Component.translatable(
+            pressed
+                ? "screen.fullfud.calibration.debug.pressed"
+                : "screen.fullfud.calibration.debug.not_pressed"
+        );
+    }
+
+    private Component statusLine() {
+        final MutableComponent status = Component.empty()
+            .append(Component.translatable("screen.fullfud.calibration.status"))
+            .append(": ")
+            .append(Component.translatable(
+                workingCalibration.isReady()
+                    ? "screen.fullfud.calibration.status_ok"
+                    : "screen.fullfud.calibration.status_none"
+            ));
+        if (workingCalibration.isSampling()) {
+            status.append(" | ").append(Component.translatable("screen.fullfud.calibration.range.running"));
+        }
+        return status;
+    }
+
+    private void renderAxisPreview(final GuiGraphics graphics, final int x, final int y, final int logicalAxis) {
+        graphics.fill(x, y, x + BAR_WIDTH, y + BAR_HEIGHT, 0xFF333333);
+
+        final int physicalAxis = workingCalibration.getAxisMapping(logicalAxis);
+        if (physicalAxis < 0) {
+            graphics.drawString(font, "-", x + BAR_WIDTH + 8, y - 1, 0x777777);
+            return;
+        }
+
+        float value;
+        if (workingCalibration.hasRangeForAxis(physicalAxis)) {
+            value = workingCalibration.normalizeMappedAxis(liveAxes, logicalAxis);
+        } else {
+            value = workingCalibration.readMappedAxis(liveAxes, logicalAxis);
+            value = Mth.clamp(value, -1.0F, 1.0F);
+            if (workingCalibration.isAxisInverted(logicalAxis)) {
+                value = -value;
+            }
+        }
+
+        final int centerX = x + BAR_WIDTH / 2;
+        graphics.fill(centerX, y, centerX + 1, y + BAR_HEIGHT, 0xFF666666);
+
+        final int indicatorX = x + (int) (((value + 1.0F) * 0.5F) * BAR_WIDTH);
+        graphics.fill(indicatorX - 1, y, indicatorX + 1, y + BAR_HEIGHT, 0xFF00FF88);
+
+        if (workingCalibration.isSampling()) {
+            final float min = rangeToBar(workingCalibration.getSampleMin(physicalAxis));
+            final float max = rangeToBar(workingCalibration.getSampleMax(physicalAxis));
+            graphics.fill(x + (int) min, y, x + (int) min + 1, y + BAR_HEIGHT, 0xFFFF5555);
+            graphics.fill(x + (int) max, y, x + (int) max + 1, y + BAR_HEIGHT, 0xFF5599FF);
+        }
+
+        graphics.drawString(font, String.format("%.2f", value), x + BAR_WIDTH + 8, y - 1, 0x999999);
+    }
+
+    private float rangeToBar(final float raw) {
+        return Mth.clamp((raw + 1.0F) * 0.5F, 0.0F, 1.0F) * BAR_WIDTH;
     }
 
     @Override
     public boolean isPauseScreen() {
         return false;
-    }
-
-    private enum Step {
-        REVIEW,
-        THROTTLE,
-        YAW,
-        PITCH,
-        ROLL,
-        ARM,
-        CENTER,
-        RANGE
     }
 }

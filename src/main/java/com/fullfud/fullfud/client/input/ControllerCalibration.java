@@ -2,11 +2,12 @@ package com.fullfud.fullfud.client.input;
 
 import net.minecraft.nbt.CompoundTag;
 
+import java.util.Arrays;
 import java.util.Locale;
 
 /**
- * Stores a locally calibrated controller profile:
- * physical axis bindings, optional arm binding, inversion, and axis ranges.
+ * Stores the locally selected controller, manual channel mapping, inversion flags,
+ * and physical axis ranges used to normalize controller input.
  */
 public class ControllerCalibration {
 
@@ -20,16 +21,14 @@ public class ControllerCalibration {
 
     private static final String[] AXIS_NAMES = {"Roll", "Pitch", "Yaw", "Throttle"};
 
-    private final float[] axisMin = new float[AXIS_COUNT];
-    private final float[] axisMax = new float[AXIS_COUNT];
-    private final float[] axisCenter = new float[AXIS_COUNT];
     private final int[] axisMapping = new int[AXIS_COUNT];
     private final boolean[] axisInverted = new boolean[AXIS_COUNT];
 
-    private boolean calibrated;
+    private float[] rangeMin = new float[0];
+    private float[] rangeMax = new float[0];
+    private float[] sampleMin = new float[0];
+    private float[] sampleMax = new float[0];
     private boolean sampling;
-    private final float[] sampleMin = new float[AXIS_COUNT];
-    private final float[] sampleMax = new float[AXIS_COUNT];
 
     private int armBinding = NO_ARM_BINDING;
     private boolean armInverted;
@@ -54,101 +53,16 @@ public class ControllerCalibration {
     }
 
     public void reset() {
-        for (int i = 0; i < AXIS_COUNT; i++) {
-            axisMin[i] = -1.0F;
-            axisMax[i] = 1.0F;
-            axisCenter[i] = 0.0F;
-            axisMapping[i] = -1;
-            axisInverted[i] = false;
-            sampleMin[i] = Float.MAX_VALUE;
-            sampleMax[i] = -Float.MAX_VALUE;
-        }
-        calibrated = false;
+        Arrays.fill(axisMapping, -1);
+        Arrays.fill(axisInverted, false);
+        rangeMin = new float[0];
+        rangeMax = new float[0];
+        sampleMin = new float[0];
+        sampleMax = new float[0];
         sampling = false;
         armBinding = NO_ARM_BINDING;
         armInverted = false;
         controllerName = "";
-    }
-
-    public void startCalibration() {
-        for (int i = 0; i < AXIS_COUNT; i++) {
-            sampleMin[i] = Float.MAX_VALUE;
-            sampleMax[i] = -Float.MAX_VALUE;
-        }
-        sampling = true;
-        calibrated = false;
-    }
-
-    public void sampleAxes(final float roll, final float pitch, final float yaw, final float throttle) {
-        if (!sampling) {
-            return;
-        }
-        final float[] values = {roll, pitch, yaw, throttle};
-        for (int i = 0; i < AXIS_COUNT; i++) {
-            if (values[i] < sampleMin[i]) {
-                sampleMin[i] = values[i];
-            }
-            if (values[i] > sampleMax[i]) {
-                sampleMax[i] = values[i];
-            }
-        }
-    }
-
-    public void recordCenter(final float roll, final float pitch, final float yaw, final float throttle) {
-        axisCenter[AXIS_ROLL] = roll;
-        axisCenter[AXIS_PITCH] = pitch;
-        axisCenter[AXIS_YAW] = yaw;
-        axisCenter[AXIS_THROTTLE] = throttle;
-    }
-
-    public void finishCalibration() {
-        for (int i = 0; i < AXIS_COUNT; i++) {
-            if (sampleMin[i] < Float.MAX_VALUE) {
-                axisMin[i] = sampleMin[i];
-            }
-            if (sampleMax[i] > -Float.MAX_VALUE) {
-                axisMax[i] = sampleMax[i];
-            }
-        }
-        sampling = false;
-        calibrated = hasCompleteAxisMapping();
-    }
-
-    public void cancelCalibration() {
-        sampling = false;
-    }
-
-    public boolean hasCompleteAxisMapping() {
-        for (int axis : axisMapping) {
-            if (axis < 0) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    public boolean hasArmBinding() {
-        return armBinding != NO_ARM_BINDING;
-    }
-
-    public boolean isReady() {
-        return calibrated && hasCompleteAxisMapping() && hasArmBinding();
-    }
-
-    public boolean isReadyForController(final String name) {
-        return isReady() && matchesController(name);
-    }
-
-    public boolean matchesController(final String name) {
-        if (controllerName == null || controllerName.isBlank()) {
-            return false;
-        }
-        final String expected = normalizeControllerName(controllerName);
-        final String actual = normalizeControllerName(name);
-        if (expected.isEmpty() || actual.isEmpty()) {
-            return false;
-        }
-        return expected.equals(actual) || expected.contains(actual) || actual.contains(expected);
     }
 
     public void setControllerName(final String name) {
@@ -160,9 +74,10 @@ public class ControllerCalibration {
     }
 
     public void setAxisMapping(final int logicalAxis, final int physicalAxis) {
-        if (logicalAxis >= 0 && logicalAxis < AXIS_COUNT) {
-            axisMapping[logicalAxis] = Math.max(-1, physicalAxis);
+        if (logicalAxis < 0 || logicalAxis >= AXIS_COUNT) {
+            return;
         }
+        axisMapping[logicalAxis] = Math.max(-1, physicalAxis);
     }
 
     public int getAxisMapping(final int logicalAxis) {
@@ -170,9 +85,10 @@ public class ControllerCalibration {
     }
 
     public void setAxisInverted(final int logicalAxis, final boolean inverted) {
-        if (logicalAxis >= 0 && logicalAxis < AXIS_COUNT) {
-            axisInverted[logicalAxis] = inverted;
+        if (logicalAxis < 0 || logicalAxis >= AXIS_COUNT) {
+            return;
         }
+        axisInverted[logicalAxis] = inverted;
     }
 
     public boolean isAxisInverted(final int logicalAxis) {
@@ -186,6 +102,10 @@ public class ControllerCalibration {
 
     public int getArmBinding() {
         return armBinding;
+    }
+
+    public boolean hasArmBinding() {
+        return armBinding != NO_ARM_BINDING;
     }
 
     public boolean isArmBindingAxis() {
@@ -204,6 +124,108 @@ public class ControllerCalibration {
         return armInverted;
     }
 
+    public boolean hasCompleteAxisMapping() {
+        for (final int mapping : axisMapping) {
+            if (mapping < 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean hasRangeCalibration() {
+        return rangeMin.length > 0 && rangeMin.length == rangeMax.length;
+    }
+
+    public int getRangeAxisCount() {
+        return rangeMin.length;
+    }
+
+    public boolean hasRangeForAxis(final int physicalAxis) {
+        if (physicalAxis < 0 || physicalAxis >= rangeMin.length || physicalAxis >= rangeMax.length) {
+            return false;
+        }
+        return (rangeMax[physicalAxis] - rangeMin[physicalAxis]) > 1.0E-4F;
+    }
+
+    public boolean isReady() {
+        if (!hasCompleteAxisMapping() || !hasArmBinding()) {
+            return false;
+        }
+        for (final int mapping : axisMapping) {
+            if (!hasRangeForAxis(mapping)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public boolean matchesController(final String name) {
+        if (controllerName == null || controllerName.isBlank() || name == null || name.isBlank()) {
+            return false;
+        }
+        if (controllerName.equalsIgnoreCase(name)) {
+            return true;
+        }
+        return normalizeControllerName(controllerName).equals(normalizeControllerName(name));
+    }
+
+    public boolean isReadyForController(final String name) {
+        return isReady() && matchesController(name);
+    }
+
+    public void startRangeSampling(final int axisCount, final float[] currentAxes) {
+        if (axisCount <= 0) {
+            sampleMin = new float[0];
+            sampleMax = new float[0];
+            sampling = false;
+            return;
+        }
+        sampleMin = new float[axisCount];
+        sampleMax = new float[axisCount];
+        for (int i = 0; i < axisCount; i++) {
+            final float value = currentAxes != null && i < currentAxes.length && Float.isFinite(currentAxes[i])
+                ? currentAxes[i]
+                : 0.0F;
+            sampleMin[i] = value;
+            sampleMax[i] = value;
+        }
+        sampling = true;
+    }
+
+    public void sampleAxes(final float[] rawAxes) {
+        if (!sampling || rawAxes == null) {
+            return;
+        }
+        final int count = Math.min(rawAxes.length, sampleMin.length);
+        for (int i = 0; i < count; i++) {
+            final float value = Float.isFinite(rawAxes[i]) ? rawAxes[i] : 0.0F;
+            if (value < sampleMin[i]) {
+                sampleMin[i] = value;
+            }
+            if (value > sampleMax[i]) {
+                sampleMax[i] = value;
+            }
+        }
+    }
+
+    public void finishRangeSampling() {
+        if (!sampling) {
+            return;
+        }
+        rangeMin = sampleMin.clone();
+        rangeMax = sampleMax.clone();
+        sampling = false;
+    }
+
+    public void cancelRangeSampling() {
+        sampling = false;
+    }
+
+    public boolean isSampling() {
+        return sampling;
+    }
+
     public float readMappedAxis(final float[] rawAxes, final int logicalAxis) {
         final int physicalAxis = getAxisMapping(logicalAxis);
         if (rawAxes == null || physicalAxis < 0 || physicalAxis >= rawAxes.length) {
@@ -214,8 +236,9 @@ public class ControllerCalibration {
     }
 
     public float normalizeMappedAxis(final float[] rawAxes, final int logicalAxis) {
+        final int physicalAxis = getAxisMapping(logicalAxis);
         final float raw = readMappedAxis(rawAxes, logicalAxis);
-        float normalized = normalize(logicalAxis, raw);
+        float normalized = normalizePhysicalAxis(raw, physicalAxis);
         if (isAxisInverted(logicalAxis)) {
             normalized = -normalized;
         }
@@ -223,101 +246,51 @@ public class ControllerCalibration {
     }
 
     public float normalizeMappedThrottle(final float[] rawAxes) {
-        final float raw = readMappedAxis(rawAxes, AXIS_THROTTLE);
-        float normalized = normalizeThrottle(raw);
-        if (isAxisInverted(AXIS_THROTTLE)) {
-            normalized = 1.0F - normalized;
+        float value = normalizeMappedAxis(rawAxes, AXIS_THROTTLE);
+        return Math.max(0.0F, Math.min(1.0F, (value + 1.0F) * 0.5F));
+    }
+
+    public float getRangeMin(final int physicalAxis) {
+        if (physicalAxis < 0 || physicalAxis >= rangeMin.length) {
+            return -1.0F;
         }
-        return normalized;
+        return rangeMin[physicalAxis];
     }
 
-    public float normalize(final int logicalAxis, final float raw) {
-        if (logicalAxis < 0 || logicalAxis >= AXIS_COUNT || !calibrated) {
-            return raw;
+    public float getRangeMax(final int physicalAxis) {
+        if (physicalAxis < 0 || physicalAxis >= rangeMax.length) {
+            return 1.0F;
         }
-        final float center = axisCenter[logicalAxis];
-        final float min = axisMin[logicalAxis];
-        final float max = axisMax[logicalAxis];
+        return rangeMax[physicalAxis];
+    }
 
-        if (raw < center) {
-            final float range = center - min;
-            if (range < 0.01F) {
-                return 0.0F;
-            }
-            return Math.max(-1.0F, (raw - center) / range);
+    public float getSampleMin(final int physicalAxis) {
+        if (physicalAxis < 0 || physicalAxis >= sampleMin.length) {
+            return -1.0F;
         }
+        return sampleMin[physicalAxis];
+    }
 
-        final float range = max - center;
-        if (range < 0.01F) {
-            return 0.0F;
+    public float getSampleMax(final int physicalAxis) {
+        if (physicalAxis < 0 || physicalAxis >= sampleMax.length) {
+            return 1.0F;
         }
-        return Math.min(1.0F, (raw - center) / range);
-    }
-
-    public float normalizeThrottle(final float raw) {
-        if (!calibrated) {
-            return (raw + 1.0F) * 0.5F;
-        }
-        final float min = axisMin[AXIS_THROTTLE];
-        final float max = axisMax[AXIS_THROTTLE];
-        final float range = max - min;
-        if (range < 0.01F) {
-            return 0.0F;
-        }
-        return Math.max(0.0F, Math.min(1.0F, (raw - min) / range));
-    }
-
-    public boolean isCalibrated() {
-        return calibrated;
-    }
-
-    public boolean isSampling() {
-        return sampling;
-    }
-
-    public float getAxisMin(final int logicalAxis) {
-        return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? axisMin[logicalAxis] : -1.0F;
-    }
-
-    public float getAxisMax(final int logicalAxis) {
-        return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? axisMax[logicalAxis] : 1.0F;
-    }
-
-    public float getAxisCenter(final int logicalAxis) {
-        return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? axisCenter[logicalAxis] : 0.0F;
-    }
-
-    public float getSampleMin(final int logicalAxis) {
-        return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? sampleMin[logicalAxis] : -1.0F;
-    }
-
-    public float getSampleMax(final int logicalAxis) {
-        return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? sampleMax[logicalAxis] : 1.0F;
-    }
-
-    public static String getAxisName(final int logicalAxis) {
-        return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? AXIS_NAMES[logicalAxis] : "Unknown";
-    }
-
-    private static String normalizeControllerName(final String name) {
-        if (name == null || name.isBlank()) {
-            return "";
-        }
-        return name.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{Nd}]+", "");
+        return sampleMax[physicalAxis];
     }
 
     public CompoundTag save() {
         final CompoundTag tag = new CompoundTag();
-        tag.putBoolean("Calibrated", calibrated);
         tag.putString("ControllerName", controllerName);
         tag.putInt("ArmBinding", armBinding);
         tag.putBoolean("ArmInverted", armInverted);
         for (int i = 0; i < AXIS_COUNT; i++) {
-            tag.putFloat("Min" + i, axisMin[i]);
-            tag.putFloat("Max" + i, axisMax[i]);
-            tag.putFloat("Center" + i, axisCenter[i]);
             tag.putInt("Mapping" + i, axisMapping[i]);
             tag.putBoolean("Inverted" + i, axisInverted[i]);
+        }
+        tag.putInt("RangeAxisCount", rangeMin.length);
+        for (int i = 0; i < rangeMin.length; i++) {
+            tag.putFloat("RangeMin" + i, rangeMin[i]);
+            tag.putFloat("RangeMax" + i, rangeMax[i]);
         }
         return tag;
     }
@@ -327,7 +300,7 @@ public class ControllerCalibration {
         if (tag == null) {
             return;
         }
-        calibrated = tag.getBoolean("Calibrated");
+
         if (tag.contains("ControllerName")) {
             controllerName = tag.getString("ControllerName");
         }
@@ -338,15 +311,6 @@ public class ControllerCalibration {
             armInverted = tag.getBoolean("ArmInverted");
         }
         for (int i = 0; i < AXIS_COUNT; i++) {
-            if (tag.contains("Min" + i)) {
-                axisMin[i] = tag.getFloat("Min" + i);
-            }
-            if (tag.contains("Max" + i)) {
-                axisMax[i] = tag.getFloat("Max" + i);
-            }
-            if (tag.contains("Center" + i)) {
-                axisCenter[i] = tag.getFloat("Center" + i);
-            }
             if (tag.contains("Mapping" + i)) {
                 axisMapping[i] = tag.getInt("Mapping" + i);
             }
@@ -354,6 +318,72 @@ public class ControllerCalibration {
                 axisInverted[i] = tag.getBoolean("Inverted" + i);
             }
         }
-        sampling = false;
+
+        if (tag.contains("RangeAxisCount")) {
+            final int axisCount = Math.max(0, tag.getInt("RangeAxisCount"));
+            rangeMin = new float[axisCount];
+            rangeMax = new float[axisCount];
+            for (int i = 0; i < axisCount; i++) {
+                rangeMin[i] = tag.contains("RangeMin" + i) ? tag.getFloat("RangeMin" + i) : -1.0F;
+                rangeMax[i] = tag.contains("RangeMax" + i) ? tag.getFloat("RangeMax" + i) : 1.0F;
+            }
+            return;
+        }
+
+        // Backward compatibility with the old logical-axis calibration format.
+        int maxMappedAxis = -1;
+        for (final int mapping : axisMapping) {
+            maxMappedAxis = Math.max(maxMappedAxis, mapping);
+        }
+        if (maxMappedAxis < 0) {
+            return;
+        }
+
+        rangeMin = new float[maxMappedAxis + 1];
+        rangeMax = new float[maxMappedAxis + 1];
+        Arrays.fill(rangeMin, -1.0F);
+        Arrays.fill(rangeMax, 1.0F);
+        for (int logicalAxis = 0; logicalAxis < AXIS_COUNT; logicalAxis++) {
+            final int physicalAxis = axisMapping[logicalAxis];
+            if (physicalAxis < 0 || physicalAxis >= rangeMin.length) {
+                continue;
+            }
+            if (tag.contains("Min" + logicalAxis)) {
+                rangeMin[physicalAxis] = tag.getFloat("Min" + logicalAxis);
+            }
+            if (tag.contains("Max" + logicalAxis)) {
+                rangeMax[physicalAxis] = tag.getFloat("Max" + logicalAxis);
+            }
+        }
+    }
+
+    public static String getAxisName(final int logicalAxis) {
+        return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? AXIS_NAMES[logicalAxis] : "Unknown";
+    }
+
+    private float normalizePhysicalAxis(final float raw, final int physicalAxis) {
+        if (!Float.isFinite(raw)) {
+            return 0.0F;
+        }
+        if (!hasRangeForAxis(physicalAxis)) {
+            return Math.max(-1.0F, Math.min(1.0F, raw));
+        }
+
+        final float min = rangeMin[physicalAxis];
+        final float max = rangeMax[physicalAxis];
+        if (raw <= min) {
+            return -1.0F;
+        }
+        if (raw >= max) {
+            return 1.0F;
+        }
+        return ((raw - min) / (max - min)) * 2.0F - 1.0F;
+    }
+
+    private static String normalizeControllerName(final String name) {
+        if (name == null || name.isBlank()) {
+            return "";
+        }
+        return name.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{Nd}]+", "");
     }
 }

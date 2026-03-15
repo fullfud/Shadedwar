@@ -7,6 +7,9 @@ import org.lwjgl.glfw.GLFWGamepadState;
 
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 public final class FpvControllerInput {
     public record State(
@@ -26,6 +29,14 @@ public final class FpvControllerInput {
         byte[] buttons
     ) { }
 
+    public record ConnectedController(
+        int jid,
+        String name,
+        boolean gamepad,
+        int axisCount,
+        int buttonCount
+    ) { }
+
     public record DebugState(
         boolean inputEnabled,
         int connectedControllers,
@@ -43,6 +54,8 @@ public final class FpvControllerInput {
         float yaw,
         float throttle
     ) { }
+
+    private static final GLFWGamepadState GAMEPAD_STATE = GLFWGamepadState.create();
 
     private static int lastJid = -1;
     private static boolean lastArmPressed = false;
@@ -65,23 +78,41 @@ public final class FpvControllerInput {
         0.0F
     );
 
-    private static final GLFWGamepadState GAMEPAD_STATE = GLFWGamepadState.create();
-
     private FpvControllerInput() { }
 
     public static DebugState getLastDebugState() {
         return lastDebugState;
     }
 
+    public static List<ConnectedController> listConnectedControllers() {
+        final List<ConnectedController> controllers = new ArrayList<>();
+        for (int i = 0; i <= 15; i++) {
+            final int jid = GLFW.GLFW_JOYSTICK_1 + i;
+            if (!GLFW.glfwJoystickPresent(jid)) {
+                continue;
+            }
+            final FloatBuffer axes = GLFW.glfwGetJoystickAxes(jid);
+            final ByteBuffer buttons = GLFW.glfwGetJoystickButtons(jid);
+            controllers.add(new ConnectedController(
+                jid,
+                safeJoystickName(jid),
+                GLFW.glfwJoystickIsGamepad(jid),
+                axes == null ? 0 : axes.remaining(),
+                buttons == null ? 0 : buttons.remaining()
+            ));
+        }
+        return controllers;
+    }
+
     public static State poll(final ControllerCalibration calibration) {
         final int connectedControllers = countConnectedJoysticks();
-        final int jid = resolveJoystickId();
+        final int jid = resolveJoystickId(calibration);
         final String controllerName = jid >= 0 ? safeJoystickName(jid) : "";
         final boolean calibrationReady = calibration != null && calibration.isReady();
-        final boolean calibrationMatches = calibration != null && calibration.isReadyForController(controllerName);
+        final boolean calibrationMatches = calibration != null && calibration.matchesController(controllerName);
         final boolean inputEnabled = isControllerInputEnabled(calibration);
         final String calibrationControllerName = calibration != null ? calibration.getControllerName() : "";
-        final String armBinding = calibration != null ? describeArmBinding(calibration) : "-";
+        final String armBinding = calibration != null ? describeArmBinding(calibration, jid) : "-";
 
         if (!inputEnabled) {
             lastJid = -1;
@@ -103,7 +134,7 @@ public final class FpvControllerInput {
                 0.0F,
                 0.0F
             );
-            return new State(false, 0, 0, 0, 0, false, false);
+            return new State(false, 0.0F, 0.0F, 0.0F, 0.0F, false, false);
         }
 
         if (jid < 0) {
@@ -126,7 +157,7 @@ public final class FpvControllerInput {
                 0.0F,
                 0.0F
             );
-            return new State(false, 0, 0, 0, 0, false, false);
+            return new State(false, 0.0F, 0.0F, 0.0F, 0.0F, false, false);
         }
         lastJid = jid;
 
@@ -147,11 +178,19 @@ public final class FpvControllerInput {
     }
 
     public static int findJoystickId() {
-        return resolveJoystickId();
+        return resolveJoystickId(null);
+    }
+
+    public static int findJoystickId(final ControllerCalibration calibration) {
+        return resolveJoystickId(calibration);
     }
 
     public static RawJoystickState snapshotRawState() {
-        final int jid = resolveJoystickId();
+        return snapshotRawState((ControllerCalibration) null);
+    }
+
+    public static RawJoystickState snapshotRawState(final ControllerCalibration calibration) {
+        final int jid = resolveJoystickId(calibration);
         return snapshotRawState(jid);
     }
 
@@ -180,15 +219,64 @@ public final class FpvControllerInput {
         return new RawJoystickState(jid, safeJoystickName(jid), axisValues, buttonValues);
     }
 
-    private static int resolveJoystickId() {
+    public static String formatChannelLabel(final int channelIndex) {
+        if (channelIndex < 0) {
+            return "-";
+        }
+        return "CH " + (channelIndex + 1);
+    }
+
+    public static String describeArmBinding(final ControllerCalibration calibration, final int jid) {
+        if (calibration == null || !calibration.hasArmBinding()) {
+            return "-";
+        }
+        final int axisCount = axisCountFor(jid, calibration);
+        if (calibration.isArmBindingAxis()) {
+            return formatChannelLabel(calibration.getArmAxisIndex());
+        }
+        return formatChannelLabel(axisCount + calibration.getArmButtonIndex());
+    }
+
+    private static int resolveJoystickId(final ControllerCalibration calibration) {
+        if (calibration != null && calibration.getControllerName() != null && !calibration.getControllerName().isBlank()) {
+            final int byName = findJoystickByName(calibration.getControllerName());
+            if (byName >= 0) {
+                return byName;
+            }
+        }
+
         final int forced = FullfudClientConfig.CLIENT.fpvControllerJoystickId.get();
         if (forced >= 0) {
             final int jid = GLFW.GLFW_JOYSTICK_1 + forced;
-            return GLFW.glfwJoystickPresent(jid) ? jid : -1;
+            if (GLFW.glfwJoystickPresent(jid)) {
+                return jid;
+            }
         }
+
         for (int i = 0; i <= 15; i++) {
             final int jid = GLFW.GLFW_JOYSTICK_1 + i;
             if (GLFW.glfwJoystickPresent(jid)) {
+                return jid;
+            }
+        }
+        return -1;
+    }
+
+    private static int findJoystickByName(final String expectedName) {
+        if (expectedName == null || expectedName.isBlank()) {
+            return -1;
+        }
+        final String normalizedExpected = normalizeControllerName(expectedName);
+        for (int i = 0; i <= 15; i++) {
+            final int jid = GLFW.GLFW_JOYSTICK_1 + i;
+            if (!GLFW.glfwJoystickPresent(jid)) {
+                continue;
+            }
+            final String actual = safeJoystickName(jid);
+            if (expectedName.equalsIgnoreCase(actual)) {
+                return jid;
+            }
+            if (!normalizedExpected.isEmpty() && normalizedExpected.equals(normalizeControllerName(actual))) {
                 return jid;
             }
         }
@@ -227,31 +315,30 @@ public final class FpvControllerInput {
                 "calibrated-missing",
                 calibration != null ? calibration.getControllerName() : "",
                 calibration != null && calibration.isReady(),
-                calibration != null && calibration.isReadyForController(safeJoystickName(jid)),
+                calibration != null && calibration.matchesController(safeJoystickName(jid)),
                 false,
                 false,
-                describeArmBinding(calibration),
+                describeArmBinding(calibration, jid),
                 0.0F,
                 0.0F,
                 0.0F,
                 0.0F
             );
-            return new State(false, 0, 0, 0, 0, false, false);
+            return new State(false, 0.0F, 0.0F, 0.0F, 0.0F, false, false);
         }
 
-        final float dz = configuredDeadzone();
-
+        final float deadzone = configuredDeadzone();
         final float pitch = applyDeadzone(
             calibration.normalizeMappedAxis(rawState.axes(), ControllerCalibration.AXIS_PITCH),
-            dz
+            deadzone
         );
         final float roll = applyDeadzone(
             calibration.normalizeMappedAxis(rawState.axes(), ControllerCalibration.AXIS_ROLL),
-            dz
+            deadzone
         );
         final float yaw = applyDeadzone(
             calibration.normalizeMappedAxis(rawState.axes(), ControllerCalibration.AXIS_YAW),
-            dz
+            deadzone
         );
         final float throttle = Mth.clamp(calibration.normalizeMappedThrottle(rawState.axes()), 0.0F, 1.0F);
 
@@ -267,10 +354,10 @@ public final class FpvControllerInput {
             "calibrated",
             calibration != null ? calibration.getControllerName() : "",
             calibration != null && calibration.isReady(),
-            calibration != null && calibration.isReadyForController(rawState.name()),
+            calibration != null && calibration.matchesController(rawState.name()),
             armPressed,
             armClicked,
-            describeArmBinding(calibration),
+            describeArmBinding(calibration, jid),
             pitch,
             roll,
             yaw,
@@ -281,24 +368,24 @@ public final class FpvControllerInput {
     }
 
     private static State pollGamepad(final int jid, final GLFWGamepadState state, final int connectedControllers) {
-        final float dz = configuredDeadzone();
+        final float deadzone = configuredDeadzone();
 
-        final float rightX = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_RIGHT_X), dz);
-        final float rightY = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_RIGHT_Y), dz);
-        final float leftX = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_LEFT_X), dz);
-        final float leftY = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_LEFT_Y), dz);
+        final float rightX = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_RIGHT_X), deadzone);
+        final float rightY = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_RIGHT_Y), deadzone);
+        final float leftX = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_LEFT_X), deadzone);
+        final float leftY = applyDeadzone(state.axes(GLFW.GLFW_GAMEPAD_AXIS_LEFT_Y), deadzone);
 
         final float pitch = invert(rightY, FullfudClientConfig.CLIENT.fpvControllerInvertPitch.get());
         final float roll = invert(-rightX, FullfudClientConfig.CLIENT.fpvControllerInvertRoll.get());
         final float yaw = invert(leftX, FullfudClientConfig.CLIENT.fpvControllerInvertYaw.get());
 
         final float throttleTarget;
-        final boolean hasThrottle = true;
-        if (FullfudClientConfig.CLIENT.fpvControllerGamepadThrottleMode.get() == FullfudClientConfig.GamepadThrottleMode.RIGHT_TRIGGER) {
+        if (FullfudClientConfig.CLIENT.fpvControllerGamepadThrottleMode.get()
+            == FullfudClientConfig.GamepadThrottleMode.RIGHT_TRIGGER) {
             throttleTarget = Mth.clamp(state.axes(GLFW.GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER), 0.0F, 1.0F);
         } else {
-            final float tAxis = invert(leftY, FullfudClientConfig.CLIENT.fpvControllerInvertThrottle.get());
-            throttleTarget = axisToThrottle01(tAxis);
+            final float axis = invert(leftY, FullfudClientConfig.CLIENT.fpvControllerInvertThrottle.get());
+            throttleTarget = axisToThrottle01(axis);
         }
 
         final boolean armPressed = state.buttons(GLFW.GLFW_GAMEPAD_BUTTON_A) == GLFW.GLFW_PRESS;
@@ -323,7 +410,7 @@ public final class FpvControllerInput {
             throttleTarget
         );
 
-        return new State(true, pitch, roll, yaw, throttleTarget, hasThrottle, armClicked);
+        return new State(true, pitch, roll, yaw, throttleTarget, true, armClicked);
     }
 
     private static State pollRawJoystick(final int jid, final int connectedControllers) {
@@ -348,11 +435,10 @@ public final class FpvControllerInput {
                 0.0F,
                 0.0F
             );
-            return new State(false, 0, 0, 0, 0, false, false);
+            return new State(false, 0.0F, 0.0F, 0.0F, 0.0F, false, false);
         }
 
-        final float dz = configuredDeadzone();
-
+        final float deadzone = configuredDeadzone();
         final int rollAxis = FullfudClientConfig.CLIENT.fpvControllerRawRollAxis.get();
         final int pitchAxis = FullfudClientConfig.CLIENT.fpvControllerRawPitchAxis.get();
         final int yawAxis = FullfudClientConfig.CLIENT.fpvControllerRawYawAxis.get();
@@ -363,9 +449,9 @@ public final class FpvControllerInput {
         float yaw = getAxis(axes, yawAxis);
         float throttleAxisValue = getAxis(axes, throttleAxis);
 
-        roll = applyDeadzone(roll, dz);
-        pitch = applyDeadzone(pitch, dz);
-        yaw = applyDeadzone(yaw, dz);
+        roll = applyDeadzone(roll, deadzone);
+        pitch = applyDeadzone(pitch, deadzone);
+        yaw = applyDeadzone(yaw, deadzone);
 
         pitch = invert(pitch, FullfudClientConfig.CLIENT.fpvControllerInvertPitch.get());
         roll = invert(roll, FullfudClientConfig.CLIENT.fpvControllerInvertRoll.get());
@@ -425,17 +511,17 @@ public final class FpvControllerInput {
         if (calibration.isArmInverted()) {
             value = -value;
         }
-        return value > 0.5F;
+        return value > 0.1F;
     }
 
-    private static String describeArmBinding(final ControllerCalibration calibration) {
-        if (calibration == null || !calibration.hasArmBinding()) {
-            return "-";
+    private static int axisCountFor(final int jid, final ControllerCalibration calibration) {
+        if (jid >= 0 && GLFW.glfwJoystickPresent(jid)) {
+            final FloatBuffer axes = GLFW.glfwGetJoystickAxes(jid);
+            if (axes != null) {
+                return axes.remaining();
+            }
         }
-        if (calibration.isArmBindingAxis()) {
-            return "axis " + calibration.getArmAxisIndex() + (calibration.isArmInverted() ? " (inv)" : "");
-        }
-        return "button " + calibration.getArmButtonIndex();
+        return calibration == null ? 0 : calibration.getRangeAxisCount();
     }
 
     private static float configuredDeadzone() {
@@ -470,5 +556,12 @@ public final class FpvControllerInput {
 
     private static float axisToThrottle01(final float axisMinus1To1) {
         return Mth.clamp((axisMinus1To1 + 1.0F) * 0.5F, 0.0F, 1.0F);
+    }
+
+    private static String normalizeControllerName(final String name) {
+        if (name == null || name.isBlank()) {
+            return "";
+        }
+        return name.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{Nd}]+", "");
     }
 }
