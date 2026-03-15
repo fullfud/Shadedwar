@@ -1174,6 +1174,13 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (owner == null) {
             owner = player.getUUID();
         }
+        final CompoundTag root = player.getPersistentData();
+        if (root.contains(PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
+            final CompoundTag tag = root.getCompound(PLAYER_REMOTE_TAG);
+            if (!tag.hasUUID(PLAYER_TAG_DRONE) || !getUUID().equals(tag.getUUID(PLAYER_TAG_DRONE))) {
+                forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
+            }
+        }
         if (!isWithinPlayerChunkRange(player)) {
             player.displayClientMessage(net.minecraft.network.chat.Component.translatable("message.fullfud.fpv.out_of_range"), true);
             return false;

@@ -484,15 +484,22 @@ public final class FpvClientHandler {
         if (controllerNow
                 && !lastControllerPresent
                 && rawState != null
-                && !controllerCalibration.isReadyForController(rawState.name())
+                && !controllerCalibration.isReady()
                 && !(minecraft.screen instanceof ControllerCalibrationScreen)) {
-            minecraft.setScreen(new ControllerCalibrationScreen(controllerCalibration));
+            openCalibrationScreen(minecraft);
         }
         lastControllerPresent = controllerNow;
 
-        if (FPV_CALIBRATE.consumeClick() && minecraft.screen == null) {
-            minecraft.setScreen(new ControllerCalibrationScreen(controllerCalibration));
+        if (FPV_CALIBRATE.consumeClick() && !(minecraft.screen instanceof ControllerCalibrationScreen)) {
+            openCalibrationScreen(minecraft);
         }
+    }
+
+    private static void openCalibrationScreen(final Minecraft minecraft) {
+        if (minecraft == null) {
+            return;
+        }
+        minecraft.setScreen(new ControllerCalibrationScreen(controllerCalibration));
     }
 
     public static ControllerCalibration getCalibration() {
@@ -807,6 +814,8 @@ public final class FpvClientHandler {
         g.drawString(font, gs, rightX - font.width(gs), botY, 0xFFFFFFFF, true);
         g.drawString(font, ias, rightX - font.width(ias), botY - 10, 0xFFFFFFFF, true);
         g.drawString(font, power, rightX - font.width(power), botY - 20, 0xFFFFFFFF, true);
+
+        renderControllerDebug(g, font, w, h);
     }
 
     private static int displayedPowerPercent(final FpvDroneEntity drone) {
@@ -816,6 +825,42 @@ public final class FpvClientHandler {
         final float displayMax = Math.max(throttleDisplayMax, 0.01F);
         final float normalizedPower = Mth.clamp(drone.getThrust() / displayMax, 0.0F, 1.0F);
         return Mth.floor(normalizedPower * 100.0F);
+    }
+
+    private static void renderControllerDebug(final GuiGraphics graphics, final Font font, final int width, final int height) {
+        final FpvControllerInput.DebugState debug = FpvControllerInput.getLastDebugState();
+        if (debug == null) {
+            return;
+        }
+
+        final String[] lines = {
+            "CTRL dbg",
+            "Ввод: " + (debug.inputEnabled() ? "вкл" : "выкл") + " | режим: " + debug.mode(),
+            "Пульт: " + (debug.joystickName().isBlank() ? "-" : debug.joystickName()),
+            "Калибровка: " + (debug.calibrationControllerName().isBlank() ? "-" : debug.calibrationControllerName()),
+            "Совпадение: " + (debug.calibrationMatches() ? "да" : "нет") + " | готова: " + (debug.calibrationReady() ? "да" : "нет"),
+            "Подключено: " + debug.connectedControllers() + " | jid: " + debug.joystickId(),
+            "Взвод: " + debug.armBinding() + " | pressed=" + debug.armPressed() + " | click=" + debug.armClicked(),
+            String.format("P %.2f | R %.2f | Y %.2f | T %.2f", debug.pitch(), debug.roll(), debug.yaw(), debug.throttle())
+        };
+
+        int maxWidth = 0;
+        for (final String line : lines) {
+            maxWidth = Math.max(maxWidth, font.width(line));
+        }
+
+        final int padding = 4;
+        final int lineHeight = 10;
+        final int boxWidth = maxWidth + padding * 2;
+        final int boxHeight = lines.length * lineHeight + padding * 2;
+        final int boxX = width - boxWidth - 10;
+        final int boxY = height - boxHeight - 40;
+
+        graphics.fill(boxX, boxY, boxX + boxWidth, boxY + boxHeight, 0x88000000);
+        for (int i = 0; i < lines.length; i++) {
+            final int color = i == 0 ? 0xFF88FF88 : 0xFFFFFFFF;
+            graphics.drawString(font, lines[i], boxX + padding, boxY + padding + i * lineHeight, color, false);
+        }
     }
 
     private static void onRenderOverlay(final RenderGuiOverlayEvent.Pre event) {

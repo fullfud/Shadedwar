@@ -2,6 +2,8 @@ package com.fullfud.fullfud.client.input;
 
 import net.minecraft.nbt.CompoundTag;
 
+import java.util.Locale;
+
 /**
  * Stores a locally calibrated controller profile:
  * physical axis bindings, optional arm binding, inversion, and axis ranges.
@@ -141,7 +143,12 @@ public class ControllerCalibration {
         if (controllerName == null || controllerName.isBlank()) {
             return false;
         }
-        return controllerName.equals(name == null ? "" : name);
+        final String expected = normalizeControllerName(controllerName);
+        final String actual = normalizeControllerName(name);
+        if (expected.isEmpty() || actual.isEmpty()) {
+            return false;
+        }
+        return expected.equals(actual) || expected.contains(actual) || actual.contains(expected);
     }
 
     public void setControllerName(final String name) {
@@ -290,6 +297,13 @@ public class ControllerCalibration {
 
     public static String getAxisName(final int logicalAxis) {
         return logicalAxis >= 0 && logicalAxis < AXIS_COUNT ? AXIS_NAMES[logicalAxis] : "Unknown";
+    }
+
+    private static String normalizeControllerName(final String name) {
+        if (name == null || name.isBlank()) {
+            return "";
+        }
+        return name.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{Nd}]+", "");
     }
 
     public CompoundTag save() {

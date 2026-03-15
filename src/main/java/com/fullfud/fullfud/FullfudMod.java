@@ -4,8 +4,10 @@ import com.fullfud.fullfud.client.FpvClientHandler;
 import com.fullfud.fullfud.client.ShahedClientHandler; 
 import com.fullfud.fullfud.common.entity.PlayerDecoyEntity;
 import com.fullfud.fullfud.core.FullfudCreativeTabs;
+import com.fullfud.fullfud.core.FullfudGameRules;
 import com.fullfud.fullfud.core.FullfudRegistries;
 import com.fullfud.fullfud.core.config.FullfudClientConfig;
+import com.fullfud.fullfud.core.config.FullfudServerConfig;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
@@ -26,10 +28,12 @@ public class FullfudMod {
 
     public FullfudMod() {
         ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, FullfudClientConfig.SPEC);
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, FullfudServerConfig.SPEC);
 
         IEventBus modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
 
         GeckoLib.initialize();
+        FullfudGameRules.init();
 
         FullfudRegistries.register(modEventBus);
         FullfudCreativeTabs.register(modEventBus);
