@@ -22,21 +22,34 @@ public class BfGlyphFont {
     private static final int GLYPH_PIXEL_COUNT = GLYPH_WIDTH * GLYPH_HEIGHT;
     private static final int MCM_CHAR_FIELD_BYTES = 64;
     private static final int MCM_PIXELS_PER_BYTE = 4;
-    private static final ResourceLocation[] FONT_RESOURCES = new ResourceLocation[]{
+    private static final ResourceLocation[] DEFAULT_FONT_RESOURCES = new ResourceLocation[]{
             new ResourceLocation(FullfudMod.MOD_ID, "osd/default.mcm"),
             new ResourceLocation(FullfudMod.MOD_ID, "osd/betaflight.mcm")
     };
 
+    private final ResourceLocation[] fontResources;
     private final int[][] glyphs = new int[GLYPH_COUNT][GLYPH_PIXEL_COUNT];
     private boolean loaded;
     private boolean failed;
+
+    public BfGlyphFont() {
+        this(DEFAULT_FONT_RESOURCES);
+    }
+
+    public BfGlyphFont(ResourceLocation... fontResources) {
+        if (fontResources == null || fontResources.length == 0) {
+            this.fontResources = DEFAULT_FONT_RESOURCES;
+            return;
+        }
+        this.fontResources = Arrays.copyOf(fontResources, fontResources.length);
+    }
 
     public void ensureLoaded() {
         if (loaded || failed) {
             return;
         }
 
-        for (ResourceLocation resource : FONT_RESOURCES) {
+        for (ResourceLocation resource : fontResources) {
             try (InputStream stream = Minecraft.getInstance().getResourceManager().open(resource);
                  BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8))) {
                 List<String> lines = reader.lines().collect(Collectors.toList());
@@ -59,6 +72,28 @@ public class BfGlyphFont {
             return;
         }
         drawGlyph(guiGraphics, code & 0xFF, x, y, foregroundColor, backgroundColor);
+    }
+
+    public void drawCodeScaled(
+        GuiGraphics guiGraphics,
+        int code,
+        int x,
+        int y,
+        float scale,
+        int foregroundColor,
+        int backgroundColor
+    ) {
+        if (!loaded) {
+            return;
+        }
+        if (!Float.isFinite(scale) || scale <= 0.0F) {
+            return;
+        }
+        if (Math.abs(scale - 1.0F) < 0.0001F) {
+            drawGlyph(guiGraphics, code & 0xFF, x, y, foregroundColor, backgroundColor);
+            return;
+        }
+        drawGlyphScaled(guiGraphics, code & 0xFF, x, y, scale, foregroundColor, backgroundColor);
     }
 
     public boolean hasVisiblePixels(int code) {
@@ -85,6 +120,38 @@ public class BfGlyphFont {
                 } else if (value == 0) {
                     guiGraphics.fill(x + px, y + py, x + px + 1, y + py + 1, backgroundColor);
                 }
+            }
+        }
+    }
+
+    private void drawGlyphScaled(
+        GuiGraphics guiGraphics,
+        int glyphIndex,
+        int x,
+        int y,
+        float scale,
+        int foregroundColor,
+        int backgroundColor
+    ) {
+        int[] glyph = glyphs[glyphIndex];
+        for (int py = 0; py < GLYPH_HEIGHT; py++) {
+            int y0 = y + Math.round(py * scale);
+            int y1 = y + Math.round((py + 1) * scale);
+            if (y1 <= y0) {
+                y1 = y0 + 1;
+            }
+            int rowStart = py * GLYPH_WIDTH;
+            for (int px = 0; px < GLYPH_WIDTH; px++) {
+                int value = glyph[rowStart + px];
+                if (value != 2 && value != 0) {
+                    continue;
+                }
+                int x0 = x + Math.round(px * scale);
+                int x1 = x + Math.round((px + 1) * scale);
+                if (x1 <= x0) {
+                    x1 = x0 + 1;
+                }
+                guiGraphics.fill(x0, y0, x1, y1, value == 2 ? foregroundColor : backgroundColor);
             }
         }
     }

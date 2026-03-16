@@ -1,9 +1,11 @@
 package com.fullfud.fullfud.client;
 
+import com.fullfud.fullfud.FullfudMod;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 
 import java.util.Locale;
@@ -31,6 +33,9 @@ public final class FpvOsdHudRenderer {
     private static final int SYM_TEMP_C = 0x0E;
     private static final int SYM_AH_LEFT = 0x03;
     private static final int SYM_AH_RIGHT = 0x02;
+    private static final int SYM_AH_CENTER_LINE = 0x72;
+    private static final int SYM_AH_CENTER = 0x73;
+    private static final int SYM_AH_CENTER_LINE_RIGHT = 0x74;
     private static final int SYM_AH_BAR9_0 = 0x80;
     private static final int SYM_AH_DECORATION = 0x13;
     private static final int SYM_HEADING_LINE = 0x1D;
@@ -50,8 +55,15 @@ public final class FpvOsdHudRenderer {
     };
 
     private static final BfGlyphFont GLYPH_FONT = new BfGlyphFont();
+    private static final BfGlyphFont CROSSHAIR_FONT = new BfGlyphFont(
+            new ResourceLocation(FullfudMod.MOD_ID, "osd/crosshair_thin.mcm"),
+            new ResourceLocation(FullfudMod.MOD_ID, "osd/default.mcm"),
+            new ResourceLocation(FullfudMod.MOD_ID, "osd/betaflight.mcm")
+    );
     private static final int OSD_FG_COLOR = 0xFFFFFFFF;
     private static final int OSD_BG_COLOR = 0xCC000000;
+    private static final int CROSSHAIR_BG_COLOR = OSD_BG_COLOR;
+    private static final float OSD_GLYPH_SCALE = 1.0f;
     private static final int BATTERY_MAX_TICKS = 12000;
     private static final int BATTERY_CAPACITY_MAH = 1500;
 
@@ -92,6 +104,7 @@ public final class FpvOsdHudRenderer {
         if (!GLYPH_FONT.isLoaded()) {
             return;
         }
+        CROSSHAIR_FONT.ensureLoaded();
 
         final long nowMillis = System.currentTimeMillis();
         final long nowNanos = System.nanoTime();
@@ -205,25 +218,130 @@ public final class FpvOsdHudRenderer {
                 minecraft.player != null ? minecraft.player.getName().getString() : "FULLFUD5"
         );
 
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 1, 1, ascii(craftName));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 13, 1, ascii("ACRO"));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 1, 14,
-                concat(new int[]{batterySymbolForPercent(batteryPercent)}, ascii((batteryDecivolts / 10) + "." + (batteryDecivolts % 10)), new int[]{SYM_VOLT}));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 23, 1, concat(new int[]{SYM_RSSI}, ascii(String.valueOf(rssi))));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 14, concat(new int[]{SYM_ON_M}, ascii(formatTime(timerSeconds))));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 1, 3, concat(new int[]{SYM_SPEED}, ascii(String.valueOf(speed)), new int[]{SYM_KPH}));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 1, 4, concat(new int[]{SYM_ALTITUDE}, ascii(String.valueOf(altitude)), new int[]{SYM_METRE}));
+        final int edgeMarginPx = Math.max(6, guiW / 80);
+        final int topRow = 1;
+        final int bottomRow = 14;
+
+        final int[] craftCodes = ascii(craftName);
+        final int[] acroCodes = ascii("ACRO");
+        final int[] batteryCodes = concat(
+                new int[]{batterySymbolForPercent(batteryPercent)},
+                ascii((batteryDecivolts / 10) + "." + (batteryDecivolts % 10)),
+                new int[]{SYM_VOLT}
+        );
+        final int[] rssiCodes = concat(new int[]{SYM_RSSI}, ascii(String.valueOf(rssi)));
+        final int[] timerCodes = concat(new int[]{SYM_ON_M}, ascii(formatTime(timerSeconds)));
+        final int[] speedCodes = concat(new int[]{SYM_SPEED}, ascii(String.valueOf(speed)), new int[]{SYM_KPH});
+        final int[] altitudeCodes = concat(new int[]{SYM_ALTITUDE}, ascii(String.valueOf(altitude)), new int[]{SYM_METRE});
+        final int[] homeCodes = concat(new int[]{homeDirectionSymbol}, ascii(String.valueOf(homeDistance)), new int[]{SYM_METRE});
+        final int[] headingCodes = concat(new int[]{headingArrowSymbol}, ascii(String.valueOf(heading)));
+        final int[] linkCodes = concat(new int[]{GLYPH_FONT.hasVisiblePixels(SYM_LINK_QUALITY) ? SYM_LINK_QUALITY : SYM_RSSI}, ascii(String.valueOf(linkQuality)));
+        final int[] throttleCodes = concat(new int[]{SYM_THR}, ascii(String.valueOf(throttle)));
+        final int[] ampCodes = concat(ascii((amperageDeci / 10) + "." + (amperageDeci % 10)), new int[]{SYM_AMP});
+        final int[] mahCodes = concat(ascii(String.valueOf(mahUsed)), new int[]{SYM_MAH});
+        final int[] tempCodes = concat(new int[]{SYM_TEMPERATURE}, ascii(String.valueOf(temperatureC)), new int[]{SYM_TEMP_C});
+
+        drawCodesAt(
+                guiGraphics,
+                edgeMarginPx,
+                rowToGlyphY(gridY, cellH, topRow, OSD_GLYPH_SCALE),
+                craftCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                (guiW - codesWidth(acroCodes, OSD_GLYPH_SCALE)) / 2,
+                rowToGlyphY(gridY, cellH, topRow, OSD_GLYPH_SCALE),
+                acroCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                edgeMarginPx,
+                rowToGlyphY(gridY, cellH, bottomRow, OSD_GLYPH_SCALE),
+                batteryCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                guiW - edgeMarginPx - codesWidth(rssiCodes, OSD_GLYPH_SCALE),
+                rowToGlyphY(gridY, cellH, topRow, OSD_GLYPH_SCALE),
+                rssiCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                guiW - edgeMarginPx - codesWidth(timerCodes, OSD_GLYPH_SCALE),
+                rowToGlyphY(gridY, cellH, bottomRow, OSD_GLYPH_SCALE),
+                timerCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                edgeMarginPx,
+                rowToGlyphY(gridY, cellH, 3, OSD_GLYPH_SCALE),
+                speedCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                edgeMarginPx,
+                rowToGlyphY(gridY, cellH, 4, OSD_GLYPH_SCALE),
+                altitudeCodes,
+                OSD_GLYPH_SCALE
+        );
         drawCrosshair(guiGraphics, gridX, gridY, cellW, cellH, 14, 7);
         drawHorizon(guiGraphics, gridX, gridY, cellW, cellH, 14, 7, horizonOffsetSmoothPx);
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 3, concat(new int[]{homeDirectionSymbol}, ascii(String.valueOf(homeDistance)), new int[]{SYM_METRE}));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 4, concat(new int[]{headingArrowSymbol}, ascii(String.valueOf(heading))));
-        drawCompassBarSmooth(guiGraphics, gridX, gridY, cellW, cellH, 10, 0, headingSmooth);
-        int linkSym = GLYPH_FONT.hasVisiblePixels(SYM_LINK_QUALITY) ? SYM_LINK_QUALITY : SYM_RSSI;
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 5, concat(new int[]{linkSym}, ascii(String.valueOf(linkQuality))));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 6, concat(new int[]{SYM_THR}, ascii(String.valueOf(throttle))));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 1, 5, concat(ascii((amperageDeci / 10) + "." + (amperageDeci % 10)), new int[]{SYM_AMP}));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 1, 6, concat(ascii(String.valueOf(mahUsed)), new int[]{SYM_MAH}));
-        drawCodes(guiGraphics, gridX, gridY, cellW, cellH, 22, 7, concat(new int[]{SYM_TEMPERATURE}, ascii(String.valueOf(temperatureC)), new int[]{SYM_TEMP_C}));
+        drawCodesAt(
+                guiGraphics,
+                guiW - edgeMarginPx - codesWidth(homeCodes, OSD_GLYPH_SCALE),
+                rowToGlyphY(gridY, cellH, 3, OSD_GLYPH_SCALE),
+                homeCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                guiW - edgeMarginPx - codesWidth(headingCodes, OSD_GLYPH_SCALE),
+                rowToGlyphY(gridY, cellH, 4, OSD_GLYPH_SCALE),
+                headingCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCompassBarSmooth(guiGraphics, gridX, gridY, cellW, cellH, 10, 0, headingSmooth, OSD_GLYPH_SCALE);
+        drawCodesAt(
+                guiGraphics,
+                guiW - edgeMarginPx - codesWidth(linkCodes, OSD_GLYPH_SCALE),
+                rowToGlyphY(gridY, cellH, 5, OSD_GLYPH_SCALE),
+                linkCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                guiW - edgeMarginPx - codesWidth(throttleCodes, OSD_GLYPH_SCALE),
+                rowToGlyphY(gridY, cellH, 6, OSD_GLYPH_SCALE),
+                throttleCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                edgeMarginPx,
+                rowToGlyphY(gridY, cellH, 5, OSD_GLYPH_SCALE),
+                ampCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                edgeMarginPx,
+                rowToGlyphY(gridY, cellH, 6, OSD_GLYPH_SCALE),
+                mahCodes,
+                OSD_GLYPH_SCALE
+        );
+        drawCodesAt(
+                guiGraphics,
+                guiW - edgeMarginPx - codesWidth(tempCodes, OSD_GLYPH_SCALE),
+                rowToGlyphY(gridY, cellH, 7, OSD_GLYPH_SCALE),
+                tempCodes,
+                OSD_GLYPH_SCALE
+        );
     }
 
     private static void drawCrosshair(
@@ -237,14 +355,15 @@ public final class FpvOsdHudRenderer {
     ) {
         int x = gridX + cellX * cellW;
         int y = gridY + cellY * cellH;
-        int cx = x + cellW;
-        int cy = y + cellH;
-        int arm = Math.max(3, cellH / 5);
+        int centerX = x + cellW;
+        int centerY = y + cellH;
+        int leftGlyphX = centerX - ((BfGlyphFont.GLYPH_WIDTH * 3) / 2);
+        int glyphY = centerY - (BfGlyphFont.GLYPH_HEIGHT / 2);
+        BfGlyphFont font = CROSSHAIR_FONT.isLoaded() ? CROSSHAIR_FONT : GLYPH_FONT;
 
-        guiGraphics.fill(cx - 1, cy - arm - 1, cx + 1, cy + arm + 2, 0xAA000000);
-        guiGraphics.fill(cx - arm - 1, cy - 1, cx + arm + 2, cy + 1, 0xAA000000);
-        guiGraphics.fill(cx, cy - arm, cx + 1, cy + arm + 1, OSD_FG_COLOR);
-        guiGraphics.fill(cx - arm, cy, cx + arm + 1, cy + 1, OSD_FG_COLOR);
+        font.drawCode(guiGraphics, SYM_AH_CENTER_LINE, leftGlyphX, glyphY, OSD_FG_COLOR, CROSSHAIR_BG_COLOR);
+        font.drawCode(guiGraphics, SYM_AH_CENTER, leftGlyphX + BfGlyphFont.GLYPH_WIDTH, glyphY, OSD_FG_COLOR, CROSSHAIR_BG_COLOR);
+        font.drawCode(guiGraphics, SYM_AH_CENTER_LINE_RIGHT, leftGlyphX + BfGlyphFont.GLYPH_WIDTH * 2, glyphY, OSD_FG_COLOR, CROSSHAIR_BG_COLOR);
     }
 
     private static void drawHorizon(
@@ -260,18 +379,18 @@ public final class FpvOsdHudRenderer {
         int hudWidth = 7;
         int hudHeight = 3;
         for (int dy = -hudHeight; dy <= hudHeight; dy++) {
-            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX - hudWidth, baseY + dy, SYM_AH_DECORATION, 0);
-            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + hudWidth, baseY + dy, SYM_AH_DECORATION, 0);
+            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX - hudWidth, baseY + dy, SYM_AH_DECORATION, 0, 1.0f);
+            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + hudWidth, baseY + dy, SYM_AH_DECORATION, 0, 1.0f);
         }
-        drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX - hudWidth + 1, baseY, SYM_AH_LEFT, 0);
-        drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + hudWidth - 1, baseY, SYM_AH_RIGHT, 0);
+        drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX - hudWidth + 1, baseY, SYM_AH_LEFT, 0, 1.0f);
+        drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + hudWidth - 1, baseY, SYM_AH_RIGHT, 0, 1.0f);
 
         int totalOffsetPx = (cellH / 2) + Math.round(offsetPx);
         int lineCellOffset = totalOffsetPx / cellH;
         int linePixelOffset = totalOffsetPx - (lineCellOffset * cellH);
         int lineY = baseY + lineCellOffset;
         for (int dx = -4; dx <= 4; dx++) {
-            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + dx, lineY, SYM_AH_BAR9_0 + 4, linePixelOffset);
+            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + dx, lineY, SYM_AH_BAR9_0 + 4, linePixelOffset, 1.0f);
         }
     }
 
@@ -283,7 +402,8 @@ public final class FpvOsdHudRenderer {
             final int cellH,
             final int cellX,
             final int cellY,
-            final float headingDegrees
+            final float headingDegrees,
+            final float glyphScale
     ) {
         int x = gridX + cellX * cellW;
         int y = gridY + cellY * cellH;
@@ -294,16 +414,18 @@ public final class FpvOsdHudRenderer {
         int visibleCells = 9;
         int drawCells = visibleCells + 1;
         int maxX = x + visibleCells * cellW;
-        int glyphY = y + ((cellH - BfGlyphFont.GLYPH_HEIGHT) / 2);
+        int glyphW = Math.max(1, Math.round(BfGlyphFont.GLYPH_WIDTH * glyphScale));
+        int glyphH = Math.max(1, Math.round(BfGlyphFont.GLYPH_HEIGHT * glyphScale));
+        int glyphY = y + ((cellH - glyphH) / 2);
 
         for (int i = 0; i < drawCells; i++) {
             int code = COMPASS_BAR_BASE[Math.floorMod(baseIndex + i, COMPASS_BAR_BASE.length)];
             int cellPixelX = x + i * cellW - shiftPx;
-            int glyphX = cellPixelX + ((cellW - BfGlyphFont.GLYPH_WIDTH) / 2);
-            if (glyphX + BfGlyphFont.GLYPH_WIDTH <= x || glyphX >= maxX) {
+            int glyphX = cellPixelX + ((cellW - glyphW) / 2);
+            if (glyphX + glyphW <= x || glyphX >= maxX) {
                 continue;
             }
-            GLYPH_FONT.drawCode(guiGraphics, code, glyphX, glyphY, OSD_FG_COLOR, OSD_BG_COLOR);
+            GLYPH_FONT.drawCodeScaled(guiGraphics, code, glyphX, glyphY, glyphScale, OSD_FG_COLOR, OSD_BG_COLOR);
         }
     }
 
@@ -315,10 +437,54 @@ public final class FpvOsdHudRenderer {
             final int cellH,
             final int startCellX,
             final int startCellY,
-            final int[] codes
+            final int[] codes,
+            final float glyphScale
     ) {
         for (int i = 0; i < codes.length; i++) {
-            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, startCellX + i, startCellY, codes[i], 0);
+            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, startCellX + i, startCellY, codes[i], 0, glyphScale);
+        }
+    }
+
+    private static int glyphWidth(final float glyphScale) {
+        return Math.max(1, Math.round(BfGlyphFont.GLYPH_WIDTH * glyphScale));
+    }
+
+    private static int glyphHeight(final float glyphScale) {
+        return Math.max(1, Math.round(BfGlyphFont.GLYPH_HEIGHT * glyphScale));
+    }
+
+    private static int codesWidth(final int[] codes, final float glyphScale) {
+        if (codes == null || codes.length == 0) {
+            return 0;
+        }
+        return codes.length * glyphWidth(glyphScale);
+    }
+
+    private static int rowToGlyphY(final int gridY, final int cellH, final int row, final float glyphScale) {
+        return gridY + row * cellH + ((cellH - glyphHeight(glyphScale)) / 2);
+    }
+
+    private static void drawCodesAt(
+            final GuiGraphics guiGraphics,
+            final int startX,
+            final int y,
+            final int[] codes,
+            final float glyphScale
+    ) {
+        if (codes == null || codes.length == 0) {
+            return;
+        }
+        final int step = glyphWidth(glyphScale);
+        for (int i = 0; i < codes.length; i++) {
+            GLYPH_FONT.drawCodeScaled(
+                    guiGraphics,
+                    codes[i],
+                    startX + i * step,
+                    y,
+                    glyphScale,
+                    OSD_FG_COLOR,
+                    OSD_BG_COLOR
+            );
         }
     }
 
@@ -331,14 +497,17 @@ public final class FpvOsdHudRenderer {
             final int cellX,
             final int cellY,
             final int code,
-            final int yPixelOffset
+            final int yPixelOffset,
+            final float glyphScale
     ) {
         if (cellX < 0 || cellX >= GRID_COLS || cellY < 0 || cellY >= GRID_ROWS) {
             return;
         }
-        int glyphX = gridX + cellX * cellW + ((cellW - BfGlyphFont.GLYPH_WIDTH) / 2);
-        int glyphY = gridY + cellY * cellH + ((cellH - BfGlyphFont.GLYPH_HEIGHT) / 2) + yPixelOffset;
-        GLYPH_FONT.drawCode(guiGraphics, code, glyphX, glyphY, OSD_FG_COLOR, OSD_BG_COLOR);
+        final int glyphW = glyphWidth(glyphScale);
+        final int glyphH = glyphHeight(glyphScale);
+        int glyphX = gridX + cellX * cellW + ((cellW - glyphW) / 2);
+        int glyphY = gridY + cellY * cellH + ((cellH - glyphH) / 2) + yPixelOffset;
+        GLYPH_FONT.drawCodeScaled(guiGraphics, code, glyphX, glyphY, glyphScale, OSD_FG_COLOR, OSD_BG_COLOR);
     }
 
     private static int batterySymbolForPercent(int percent) {

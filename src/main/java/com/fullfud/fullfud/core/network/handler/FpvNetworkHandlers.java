@@ -1,10 +1,14 @@
 package com.fullfud.fullfud.core.network.handler;
 
+import com.fullfud.fullfud.client.FpvClientHandler;
 import com.fullfud.fullfud.common.entity.FpvDroneEntity;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
+import com.fullfud.fullfud.core.network.packet.OpenFpvConfiguratorPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.DistExecutor;
 
 public final class FpvNetworkHandlers {
     private FpvNetworkHandlers() {
@@ -36,5 +40,9 @@ public final class FpvNetworkHandlers {
         if (entity instanceof FpvDroneEntity drone) {
             drone.requestRelease(sender);
         }
+    }
+
+    public static void handleOpenConfigurator(final OpenFpvConfiguratorPacket packet) {
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> FpvClientHandler.openConfigurator(packet.droneId()));
     }
 }

@@ -10,6 +10,7 @@ import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.entity.ShahedLauncherEntity;
 import com.fullfud.fullfud.common.entity.drone.DronePreset;
 import com.fullfud.fullfud.common.item.MonitorItem;
+import com.fullfud.fullfud.common.item.FpvConfiguratorItem;
 import com.fullfud.fullfud.common.item.RebBatteryItem;
 import com.fullfud.fullfud.common.item.RebEmitterItem;
 import com.fullfud.fullfud.common.item.ShahedLauncherItem;
@@ -43,6 +44,10 @@ public final class FullfudRegistries {
 
     public static final RegistryObject<Item> MONITOR_ITEM = ITEMS.register("monitor_control", () ->
         new MonitorItem(new Item.Properties().stacksTo(1))
+    );
+
+    public static final RegistryObject<Item> FPV_CONFIGURATOR_ITEM = ITEMS.register("fpv_configurator", () ->
+        new FpvConfiguratorItem(new Item.Properties().stacksTo(1))
     );
 
     public static final RegistryObject<Item> SHAHED_ITEM = ITEMS.register("shahed_136", () ->

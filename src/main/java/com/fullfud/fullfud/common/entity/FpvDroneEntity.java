@@ -2,6 +2,7 @@ package com.fullfud.fullfud.common.entity;
 
 import com.fullfud.fullfud.common.entity.drone.DronePhysics;
 import com.fullfud.fullfud.common.entity.drone.DronePreset;
+import com.fullfud.fullfud.common.item.FpvConfiguratorItem;
 import com.fullfud.fullfud.common.item.FpvControllerItem;
 import com.fullfud.fullfud.common.item.FpvGogglesItem;
 import com.mojang.datafixers.util.Pair;
@@ -14,6 +15,7 @@ import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
+import com.fullfud.fullfud.core.network.packet.OpenFpvConfiguratorPacket;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
@@ -869,6 +871,15 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
         if (!canAccess(player)) {
             return InteractionResult.FAIL;
+        }
+        if (held.getItem() instanceof FpvConfiguratorItem) {
+            if (player instanceof ServerPlayer serverPlayer) {
+                FullfudNetwork.getChannel().send(
+                    PacketDistributor.PLAYER.with(() -> serverPlayer),
+                    new OpenFpvConfiguratorPacket(getUUID())
+                );
+            }
+            return InteractionResult.sidedSuccess(level().isClientSide());
         }
         if (held.getItem() instanceof FpvControllerItem controller) {
             controller.link(held, this, player);
