@@ -865,25 +865,27 @@ public final class FpvClientHandler {
             return;
         }
 
-        final float partialTick = (float) event.getPartialTick();
-        updateSmoothedCameraState(drone, partialTick);
-        final CameraAngles orientation = resolveSmoothedCameraOrientation(lastResolvedCameraYaw);
+        final float partialTick = Mth.clamp((float) event.getPartialTick(), 0.0F, 1.0F);
+        final FpvDroneEntity.CameraOrientation orientation = drone.getCameraOrientation(partialTick);
         float yaw = orientation.yaw();
-        final float pitch = orientation.pitch();
-        final float roll = orientation.roll();
+        float pitch = orientation.pitch();
+        float roll = orientation.roll();
 
         if (!Float.isFinite(yaw)) {
-            yaw = lastResolvedCameraYaw;
-        } else {
-            lastResolvedCameraYaw = yaw;
+            yaw = drone.getYRot();
+        }
+        if (!Float.isFinite(pitch)) {
+            pitch = drone.getXRot();
+        }
+        if (!Float.isFinite(roll)) {
+            roll = drone.getCameraRoll(partialTick);
         }
 
-        if (smoothedCameraInitialized
-            && Objects.equals(smoothedCameraDroneId, drone.getUUID())
-            && Double.isFinite(smoothedCameraX)
-            && Double.isFinite(smoothedCameraY)
-            && Double.isFinite(smoothedCameraZ)) {
-            trySetCameraPosition(event.getCamera(), smoothedCameraX, smoothedCameraY, smoothedCameraZ);
+        lastResolvedCameraYaw = yaw;
+
+        final Vec3 cameraPos = drone.getEyePosition(partialTick);
+        if (Double.isFinite(cameraPos.x) && Double.isFinite(cameraPos.y) && Double.isFinite(cameraPos.z)) {
+            trySetCameraPosition(event.getCamera(), cameraPos.x, cameraPos.y, cameraPos.z);
         }
 
         final CameraType cameraType = minecraft != null && minecraft.options != null
