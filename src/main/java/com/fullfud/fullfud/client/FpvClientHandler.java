@@ -17,7 +17,6 @@ import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
-import net.minecraft.client.Camera;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.CameraType;
 import net.minecraft.client.Minecraft;
@@ -56,7 +55,6 @@ import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -115,7 +113,6 @@ public final class FpvClientHandler {
     private static boolean forcedFov;
     private static PostChain fpvPostChain;
     private static Field passesFieldCache;
-    private static Method cameraSetPositionMethodCache;
     private static int lastChainWidth = -1;
     private static int lastChainHeight = -1;
     private static float clientTime = 0.0F;
@@ -193,7 +190,6 @@ public final class FpvClientHandler {
     private static void onRenderTick(final TickEvent.RenderTickEvent event) {
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null) {
-            invalidateSmoothedCameraState();
             if (event.phase != TickEvent.Phase.END) return;
             if (inFpvMode) {
                 inFpvMode = false;
@@ -204,11 +200,6 @@ public final class FpvClientHandler {
         }
 
         final FpvDroneEntity drone = resolveActiveControlledDrone(minecraft);
-        if (isFpvActive(minecraft, drone)) {
-            updateSmoothedCameraState(drone, event.renderTickTime);
-        } else {
-            invalidateSmoothedCameraState();
-        }
 
         if (event.phase != TickEvent.Phase.END) return;
 
@@ -619,16 +610,11 @@ public final class FpvClientHandler {
             return;
         }
         try {
-            final var soundManager = minecraft.getSoundManager();
-            final var camera = minecraft.gameRenderer.getMainCamera();
-            final java.lang.reflect.Method method = soundManager.getClass().getMethod("updateSource", camera.getClass());
-            method.invoke(soundManager, camera);
+            minecraft.getSoundManager().updateSource(minecraft.gameRenderer.getMainCamera());
         } catch (Throwable ignored) {
         }
         try {
-            final var soundManager = minecraft.getSoundManager();
-            final java.lang.reflect.Method method = soundManager.getClass().getMethod("resume");
-            method.invoke(soundManager);
+            minecraft.getSoundManager().resume();
         } catch (Throwable ignored) {
         }
     }
@@ -792,25 +778,6 @@ public final class FpvClientHandler {
         }
     }
 
-    private static void trySetCameraPosition(final Camera camera, final double x, final double y, final double z) {
-        if (camera == null) {
-            return;
-        }
-        try {
-            if (cameraSetPositionMethodCache == null) {
-                cameraSetPositionMethodCache = Camera.class.getDeclaredMethod(
-                    "setPosition",
-                    double.class,
-                    double.class,
-                    double.class
-                );
-                cameraSetPositionMethodCache.setAccessible(true);
-            }
-            cameraSetPositionMethodCache.invoke(camera, x, y, z);
-        } catch (Throwable ignored) {
-        }
-    }
-
     private static CameraAngles resolveSmoothedCameraOrientation(final float fallbackYaw) {
         if (!smoothedCameraInitialized) {
             return new CameraAngles(fallbackYaw, 0.0F, 0.0F);
@@ -882,11 +849,6 @@ public final class FpvClientHandler {
         }
 
         lastResolvedCameraYaw = yaw;
-
-        final Vec3 cameraPos = drone.getEyePosition(partialTick);
-        if (Double.isFinite(cameraPos.x) && Double.isFinite(cameraPos.y) && Double.isFinite(cameraPos.z)) {
-            trySetCameraPosition(event.getCamera(), cameraPos.x, cameraPos.y, cameraPos.z);
-        }
 
         final CameraType cameraType = minecraft != null && minecraft.options != null
             ? minecraft.options.getCameraType()

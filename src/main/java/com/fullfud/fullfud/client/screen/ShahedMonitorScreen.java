@@ -607,6 +607,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             }
             minecraft.setCameraEntity(drone);
             minecraft.options.setCameraType(net.minecraft.client.CameraType.FIRST_PERSON);
+            refreshSoundListener();
             cameraOverridden = true;
             hasCameraFeed = true;
         } else {
@@ -620,6 +621,7 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
             final Entity fallback = minecraft.player != null ? minecraft.player : previousCamera;
             if (cameraOverridden && fallback != null) {
                 minecraft.setCameraEntity(fallback);
+                refreshSoundListener();
             }
             if (previousCameraType != null) {
                 minecraft.options.setCameraType(previousCameraType);
@@ -632,6 +634,20 @@ public class ShahedMonitorScreen extends AbstractContainerScreen<ShahedMonitorMe
         cameraOverridden = false;
         previousCamera = null;
         previousCameraType = null;
+    }
+
+    private void refreshSoundListener() {
+        if (minecraft == null) {
+            return;
+        }
+        try {
+            minecraft.getSoundManager().updateSource(minecraft.gameRenderer.getMainCamera());
+        } catch (Throwable ignored) {
+        }
+        try {
+            minecraft.getSoundManager().resume();
+        } catch (Throwable ignored) {
+        }
     }
 
     private ShahedDroneEntity resolveDrone() {
