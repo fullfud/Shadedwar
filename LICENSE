@@ -5,6 +5,26 @@ This license governs the mod known as "Fullfud Shahed mod (Shaded War)" and
 any associated source, assets, and binaries ("Software"). By downloading,
 building, installing, or using the Software, you accept this license.
 
+This license applies only to original code, original assets, and other
+original material owned by fullfud. It does not grant any rights in
+third-party materials bundled with, vendored into, copied into, converted
+from, or derived from external sources, and it does not replace or override
+any upstream third-party license.
+
+Such third-party materials remain subject to their respective upstream
+licenses, copyright notices, attribution requirements, and restrictions, and
+those terms control for those materials to the extent of any conflict with
+this license. This carve-out includes, without limitation, third-party fonts,
+OSD fonts, OSD glyph data, `.mcm` font resources, and other imported vendor
+resources, including files such as
+`src/main/resources/assets/fullfud/osd/betaflight.mcm`,
+`src/main/resources/assets/fullfud/osd/default.mcm`,
+`src/main/resources/assets/fullfud/osd/crosshair_thin.mcm`, and
+`src/main/resources/assets/fullfud/font/vcr_osd_mono.ttf`, to the extent
+those files are third-party or derived from third-party sources. See
+`THIRD_PARTY_NOTICES.md` for the currently documented third-party materials
+distributed with this repository.
+
 1) Owner Rights (fullfud)
 The copyright holder (fullfud) retains all rights. This license does not limit
 the owner in any way. fullfud has unrestricted rights to use, modify, sell,

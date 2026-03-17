@@ -152,6 +152,8 @@ When changing gameplay or FPV systems, include testing notes when possible.
 ## License
 
 This project uses a custom license. See [LICENSE](LICENSE) for the full text.
+For bundled third-party fonts, OSD glyph resources, and other imported vendor
+materials, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Short version:
 
@@ -160,3 +162,4 @@ Short version:
 - redistribution and derivatives must keep attribution and the same license terms
 - commercial use requires explicit written permission from `fullfud`
 - `FrontlineMC` has a specific additional grant described in the license
+- third-party fonts, OSD font/glyph assets, and other imported vendor resources are not covered by the custom license and remain subject to their upstream terms
