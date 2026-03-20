@@ -171,6 +171,7 @@ public final class FpvClientHandler {
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderLiving);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onRenderPlayer);
             MinecraftForge.EVENT_BUS.addListener(FpvClientHandler::onPlayLevelSoundAtEntity);
+            MinecraftForge.EVENT_BUS.addListener(FpvSoundHandler::onClientTick);
         });
     }
 
@@ -554,6 +555,7 @@ public final class FpvClientHandler {
             destroyFpvChain();
         }
         stopActiveDroneAudio();
+        FpvSoundHandler.clear();
         if (shouldRestoreCamera) {
             forceCameraToPlayer();
         }

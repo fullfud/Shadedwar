@@ -4,7 +4,9 @@ import com.fullfud.fullfud.client.render.RebEmitterRenderer;
 import com.fullfud.fullfud.client.render.ShahedDroneRenderer;
 import com.fullfud.fullfud.client.render.ShahedLauncherRenderer;
 import com.fullfud.fullfud.client.screen.ShahedMonitorScreen;
-import com.fullfud.fullfud.client.sound.ShahedEngineLoopSound;
+import com.fullfud.fullfud.client.sound.DroneSoundEffects;
+import com.fullfud.fullfud.client.sound.ShahedDiveLoopSoundInstance;
+import com.fullfud.fullfud.client.sound.ShahedEngineLoopSoundInstance;
 import com.fullfud.fullfud.common.entity.RebEmitterEntity;
 import com.fullfud.fullfud.common.entity.ShahedDroneEntity;
 import com.fullfud.fullfud.common.item.MonitorItem;
@@ -43,6 +45,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.EntityHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.LightLayer;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
@@ -275,10 +278,14 @@ public final class ShahedClientHandler {
 
     private static final class EngineAudioController {
         private final ShahedDroneEntity drone;
-        private ShahedEngineLoopSound loopSound;
-        private float lastThrust;
-
         private boolean seen;
+        private ShahedEngineLoopSoundInstance engine;
+        private ShahedDiveLoopSoundInstance dive;
+        private long lastSeenTick = -1L;
+        private Vec3 prevDronePos;
+        private Vec3 lastDroneVelocity = Vec3.ZERO;
+        private Vec3 extrapolatedPos;
+        private float lastEngineMix;
 
         private EngineAudioController(final ShahedDroneEntity drone) {
             this.drone = drone;
@@ -289,73 +296,195 @@ public final class ShahedClientHandler {
         }
 
         private void stop() {
-            if (loopSound != null) {
-                loopSound.stopSound();
-                loopSound = null;
+            if (engine != null) {
+                engine.forceStop();
+                engine = null;
+            }
+            if (dive != null) {
+                dive.forceStop();
+                dive = null;
             }
         }
 
         private void updateFromEntity() {
             seen = true;
-            update(drone.getAudioEngineMix());
+            final Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft == null || minecraft.level == null || isInvalid()) {
+                stop();
+                return;
+            }
+            final long nowTick = minecraft.level.getGameTime();
+            lastSeenTick = nowTick;
+            final float activeThreshold = (float) Mth.clamp(FullfudClientConfig.CLIENT.shahedLocalAudioActiveThreshold.get(), 0.0D, 1.0D);
+            final float engineMix = Mth.clamp(drone.getAudioEngineMix(), 0.0F, 1.0F);
+            final boolean active = engineMix > activeThreshold;
+            if (!active) {
+                if (engine != null) {
+                    engine.requestFadeOut();
+                }
+                if (dive != null) {
+                    dive.requestFadeOut();
+                }
+                prevDronePos = null;
+                lastEngineMix = engineMix;
+                return;
+            }
+
+            if (lastEngineMix <= activeThreshold) {
+                playStartOneShot();
+            }
+
+            final Vec3 dronePos = drone.position();
+            final Vec3 motion = drone.getDeltaMovement();
+            final double speed = motion.length();
+            Vec3 droneVelocity = motion;
+            if (prevDronePos != null) {
+                droneVelocity = dronePos.subtract(prevDronePos);
+            }
+            prevDronePos = dronePos;
+            lastDroneVelocity = droneVelocity;
+            extrapolatedPos = dronePos;
+
+            final float diveFactor = (float) Mth.clamp(-motion.y / 2.0D, 0.0D, 0.8D);
+            final float climbFactor = (float) Mth.clamp(motion.y / 1.8D, 0.0D, 1.0D);
+            final float speedFactor = (float) Mth.clamp(speed / 3.0D, 0.0D, 1.0D);
+            final float turnFactor = (float) Mth.clamp(Math.abs(Mth.wrapDegrees(drone.getYRot() - drone.yRotO)) / 8.0F, 0.0D, 1.0D);
+            Vec3 playerPos = dronePos;
+            if (minecraft.getCameraEntity() != null) {
+                playerPos = minecraft.getCameraEntity().position();
+            }
+            final double distance = dronePos.distanceTo(playerPos);
+            final double maxDistance = FullfudClientConfig.CLIENT.shahedSoundMaxDistance.get();
+            final float dopplerPitch = DroneSoundEffects.computeDopplerPitch(dronePos, droneVelocity, playerPos);
+            final float gainHF = DroneSoundEffects.computeCombinedGainHF(distance, dronePos.y, playerPos.y, maxDistance);
+            ensureEngine(minecraft, maxDistance);
+            if (engine != null) {
+                engine.update(
+                    dronePos.x,
+                    dronePos.y,
+                    dronePos.z,
+                    engineMix,
+                    diveFactor,
+                    climbFactor,
+                    speedFactor,
+                    turnFactor,
+                    dopplerPitch,
+                    gainHF,
+                    nowTick
+                );
+            }
+
+            if (motion.y < -0.5D) {
+                ensureDive(minecraft, maxDistance);
+                final float diveIntensity = (float) Mth.clamp(-motion.y / 2.0D, 0.0D, 1.0D);
+                if (dive != null) {
+                    dive.update(dronePos.x, dronePos.y, dronePos.z, diveIntensity, speedFactor, dopplerPitch, gainHF, nowTick);
+                }
+            } else if (dive != null) {
+                dive.requestFadeOut();
+            }
+
+            lastEngineMix = engineMix;
         }
 
-        private void update(final float thrust) {
-            final Minecraft minecraft = Minecraft.getInstance();
-            if (minecraft == null || minecraft.level == null) {
+        private void ensureEngine(final Minecraft minecraft, final double maxDistance) {
+            if (engine != null && !engine.isStopped()) {
                 return;
             }
-            if (isInvalid()) {
-                stop();
-                return;
-            }
-            final float activeThreshold = (float) Mth.clamp(FullfudClientConfig.CLIENT.shahedLocalAudioActiveThreshold.get(), 0.0D, 1.0D);
-            final float clamped = Mth.clamp(thrust, 0.0F, 1.0F);
-            if (clamped > activeThreshold) {
-                if (lastThrust <= activeThreshold) {
-                    playOneShot(FullfudRegistries.SHAHED_ENGINE_START.get(), clamped);
-                }
-                ensureLoop();
-                if (loopSound != null) {
-                    loopSound.setEngineMix(clamped);
-                }
-            } else if (lastThrust > activeThreshold) {
-                stop();
-                playOneShot(FullfudRegistries.SHAHED_ENGINE_END.get(), lastThrust);
-            }
-            lastThrust = clamped;
-            if (clamped <= activeThreshold && loopSound != null) {
-                loopSound.setEngineMix(0.0F);
-            }
+            engine = new ShahedEngineLoopSoundInstance(FullfudRegistries.SHAHED_ENGINE_LOOP.get(), maxDistance);
+            minecraft.getSoundManager().play(engine);
         }
 
         private boolean shouldRemove() {
-            if (!seen || isInvalid()) {
+            if (isInvalid()) {
                 stop();
                 return true;
+            }
+            final boolean engineStopped = engine == null || engine.isStopped();
+            final boolean diveStopped = dive == null || dive.isStopped();
+            if (engineStopped && diveStopped) {
+                return true;
+            }
+            if (!seen) {
+                final Minecraft minecraft = Minecraft.getInstance();
+                if (minecraft == null || minecraft.level == null) {
+                    stop();
+                    return true;
+                }
+                final long nowTick = minecraft.level.getGameTime();
+                final long elapsed = lastSeenTick >= 0L ? nowTick - lastSeenTick : 0L;
+                if (elapsed > 500L) {
+                    stop();
+                    return true;
+                }
+                extrapolateAndUpdate(nowTick, elapsed);
             }
             return false;
         }
 
-        private void ensureLoop() {
-            final Minecraft minecraft = Minecraft.getInstance();
-            if (loopSound != null && !loopSound.isStopped()) {
+        private void ensureDive(final Minecraft minecraft, final double maxDistance) {
+            if (dive != null && !dive.isStopped()) {
                 return;
             }
-            loopSound = new ShahedEngineLoopSound(drone);
-            final float activeThreshold = (float) Mth.clamp(FullfudClientConfig.CLIENT.shahedLocalAudioActiveThreshold.get(), 0.0D, 1.0D);
-            loopSound.setEngineMix(Math.max(lastThrust, activeThreshold));
-            minecraft.getSoundManager().play(loopSound);
+            dive = new ShahedDiveLoopSoundInstance(FullfudRegistries.SHAHED_ENGINE_DIVE.get(), maxDistance);
+            minecraft.getSoundManager().play(dive);
         }
 
-        private void playOneShot(final SoundEvent event, final float thrust) {
+        private void extrapolateAndUpdate(final long nowTick, final long elapsed) {
+            if (extrapolatedPos == null) {
+                if (engine != null && !engine.isStopped()) {
+                    engine.keepAlive(nowTick);
+                }
+                if (dive != null && !dive.isStopped()) {
+                    dive.keepAlive(nowTick);
+                }
+                return;
+            }
+            extrapolatedPos = extrapolatedPos.add(lastDroneVelocity);
             final Minecraft minecraft = Minecraft.getInstance();
             if (minecraft == null || minecraft.level == null) {
                 return;
             }
-            final float volume = 0.25F + 0.75F * thrust;
-            final float pitch = 0.9F + 0.2F * thrust;
-            minecraft.level.playLocalSound(drone.getX(), drone.getY(), drone.getZ(), event, SoundSource.NEUTRAL, volume, pitch, false);
+            Vec3 playerPos = extrapolatedPos;
+            if (minecraft.getCameraEntity() != null) {
+                playerPos = minecraft.getCameraEntity().position();
+            }
+            final double distance = extrapolatedPos.distanceTo(playerPos);
+            final double maxDistance = FullfudClientConfig.CLIENT.shahedSoundMaxDistance.get();
+            final float dopplerPitch = DroneSoundEffects.computeDopplerPitch(extrapolatedPos, lastDroneVelocity, playerPos);
+            final float gainHF = DroneSoundEffects.computeCombinedGainHF(distance, extrapolatedPos.y, playerPos.y, maxDistance);
+            if (engine != null && !engine.isStopped()) {
+                engine.extrapolate(extrapolatedPos.x, extrapolatedPos.y, extrapolatedPos.z, dopplerPitch, gainHF, nowTick);
+            }
+            if (dive != null && !dive.isStopped()) {
+                dive.extrapolate(extrapolatedPos.x, extrapolatedPos.y, extrapolatedPos.z, dopplerPitch, gainHF, nowTick);
+            }
+            final double fadeDistance = maxDistance > 0.0D ? maxDistance : 3000.0D;
+            if (distance > fadeDistance || elapsed > 400L) {
+                if (engine != null) {
+                    engine.requestFadeOut();
+                }
+                if (dive != null) {
+                    dive.requestFadeOut();
+                }
+            }
+        }
+
+        private void playStartOneShot() {
+            final Minecraft minecraft = Minecraft.getInstance();
+            if (minecraft == null || minecraft.level == null) {
+                return;
+            }
+            minecraft.level.playLocalSound(
+                drone.getX(),
+                drone.getY(),
+                drone.getZ(),
+                FullfudRegistries.SHAHED_ENGINE_START.get(),
+                SoundSource.NEUTRAL,
+                2.0F,
+                1.0F,
+                false
+            );
         }
     }
 

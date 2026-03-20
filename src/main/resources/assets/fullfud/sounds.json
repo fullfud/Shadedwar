@@ -1,17 +1,55 @@
 ﻿{
   "shahed.engine_start": {
-    "sounds": ["fullfud:shahed136_start"]
+    "sounds": [
+      {
+        "name": "fullfud:shahed136_start",
+        "attenuation_distance": 300,
+        "stream": false,
+        "volume": 1.2
+      }
+    ]
   },
   "shahed.engine_loop": {
     "sounds": [
       {
         "name": "fullfud:shahed136_engine",
-        "stream": true
+        "attenuation_distance": 16,
+        "stream": false,
+        "volume": 1.0
+      }
+    ]
+  },
+  "shahed.engine_dive": {
+    "sounds": [
+      {
+        "name": "fullfud:shahed136_engine",
+        "attenuation_distance": 16,
+        "stream": false,
+        "volume": 1.5,
+        "pitch": 1.3
       }
     ]
   },
   "shahed.engine_end": {
-    "sounds": ["fullfud:shahed136_engine_end"]
+    "sounds": [
+      {
+        "name": "fullfud:shahed136_engine_end",
+        "attenuation_distance": 300,
+        "stream": false,
+        "volume": 1.5
+      }
+    ]
+  },
+  "shahed.flyby": {
+    "sounds": [
+      {
+        "name": "fullfud:shahed136_engine",
+        "attenuation_distance": 600,
+        "stream": false,
+        "volume": 1.3,
+        "pitch": 1.1
+      }
+    ]
   },
   "fpv.engine_start": {
     "subtitle": "subtitles.fullfud.fpv.start",
@@ -26,9 +64,18 @@
     "subtitle": "subtitles.fullfud.fpv.loop",
     "sounds": [
       {
-        "name": "fullfud:fpv_engine_full",
-        "stream": true,
-        "attenuation_distance": 200
+        "name": "fullfud:quad_engine_full_01",
+        "stream": false,
+        "attenuation_distance": 48
+      }
+    ]
+  },
+  "fpv.engine_interior": {
+    "sounds": [
+      {
+        "name": "fullfud:quad_engine_full_int",
+        "stream": false,
+        "attenuation_distance": 8
       }
     ]
   },

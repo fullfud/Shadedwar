@@ -11,6 +11,7 @@ import com.fullfud.fullfud.core.DroneExplosionEffects;
 import com.fullfud.fullfud.core.DroneExplosionLimiter;
 import com.fullfud.fullfud.core.PlayerDecoyManager;
 import com.fullfud.fullfud.core.RemotePlayerProtection;
+import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.DroneAudioLoopPacket;
 import com.fullfud.fullfud.core.network.packet.DroneAudioOneShotPacket;
@@ -1808,34 +1809,37 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
             drone.setRot(drone.getYRot(), drone.getXRot());
 
             final boolean currentlyArmed = drone.isArmed();
-            final float currentThrust = drone.getThrust();
-
-            final float volumeMult = 0.2F;
-
-            if (currentlyArmed && !drone.wasArmedClient) {
-                drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
-                    FullfudRegistries.FPV_ENGINE_START.get(),
-                    net.minecraft.sounds.SoundSource.NEUTRAL,
-                    1.0F * volumeMult, 1.0F, false);
-            }
-
-            if (!currentlyArmed && drone.wasArmedClient) {
-                drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
-                    FullfudRegistries.FPV_ENGINE_STOP.get(),
-                    net.minecraft.sounds.SoundSource.NEUTRAL,
-                    1.0F * volumeMult, 1.0F, false);
-            }
-
-            final net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
-            if (currentlyArmed && currentThrust > 0.01F) {
-                if (drone.clientSoundInstance == null || !mc.getSoundManager().isActive((com.fullfud.fullfud.client.sound.FpvEngineSoundInstance) drone.clientSoundInstance)) {
-                    final com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound = new com.fullfud.fullfud.client.sound.FpvEngineSoundInstance(drone);
-                    mc.getSoundManager().play(sound);
-                    drone.clientSoundInstance = sound;
+            if (!FullfudClientConfig.CLIENT.fpvUseLocalEntityAudio.get()) {
+                final float currentThrust = drone.getThrust();
+                final float volumeMult = 0.2F;
+                if (currentlyArmed && !drone.wasArmedClient) {
+                    drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
+                        FullfudRegistries.FPV_ENGINE_START.get(),
+                        net.minecraft.sounds.SoundSource.NEUTRAL,
+                        1.0F * volumeMult, 1.0F, false);
                 }
+                if (!currentlyArmed && drone.wasArmedClient) {
+                    drone.level().playLocalSound(drone.getX(), drone.getY(), drone.getZ(),
+                        FullfudRegistries.FPV_ENGINE_STOP.get(),
+                        net.minecraft.sounds.SoundSource.NEUTRAL,
+                        1.0F * volumeMult, 1.0F, false);
+                }
+                final net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+                if (currentlyArmed && currentThrust > 0.01F) {
+                    if (drone.clientSoundInstance == null || !mc.getSoundManager().isActive((com.fullfud.fullfud.client.sound.FpvEngineSoundInstance) drone.clientSoundInstance)) {
+                        final com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound = new com.fullfud.fullfud.client.sound.FpvEngineSoundInstance(drone);
+                        mc.getSoundManager().play(sound);
+                        drone.clientSoundInstance = sound;
+                    }
+                }
+                drone.wasArmedClient = currentlyArmed;
+            } else {
+                if (drone.clientSoundInstance instanceof com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound) {
+                    sound.stopSound();
+                }
+                drone.clientSoundInstance = null;
+                drone.wasArmedClient = currentlyArmed;
             }
-
-            drone.wasArmedClient = currentlyArmed;
 
         }
     }
@@ -1846,6 +1850,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (!level().isClientSide) {
             return;
         }
+        com.fullfud.fullfud.client.FpvSoundHandler.stopForDrone(this.getUUID());
         if (clientSoundInstance instanceof com.fullfud.fullfud.client.sound.FpvEngineSoundInstance sound) {
             sound.stopSound();
         }

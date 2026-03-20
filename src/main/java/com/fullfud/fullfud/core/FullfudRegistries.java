@@ -184,8 +184,14 @@ public final class FullfudRegistries {
     public static final RegistryObject<SoundEvent> SHAHED_ENGINE_LOOP = SOUND_EVENTS.register("shahed.engine_loop",
         () -> SoundEvent.createVariableRangeEvent(resource("shahed.engine_loop"))
     );
+    public static final RegistryObject<SoundEvent> SHAHED_ENGINE_DIVE = SOUND_EVENTS.register("shahed.engine_dive",
+        () -> SoundEvent.createVariableRangeEvent(resource("shahed.engine_dive"))
+    );
     public static final RegistryObject<SoundEvent> SHAHED_ENGINE_END = SOUND_EVENTS.register("shahed.engine_end",
         () -> SoundEvent.createVariableRangeEvent(resource("shahed.engine_end"))
+    );
+    public static final RegistryObject<SoundEvent> SHAHED_FLYBY = SOUND_EVENTS.register("shahed.flyby",
+        () -> SoundEvent.createVariableRangeEvent(resource("shahed.flyby"))
     );
 
     public static final RegistryObject<SoundEvent> FPV_ENGINE_START = SOUND_EVENTS.register("fpv.engine_start",
@@ -193,6 +199,9 @@ public final class FullfudRegistries {
     );
     public static final RegistryObject<SoundEvent> FPV_ENGINE_LOOP = SOUND_EVENTS.register("fpv.engine_loop",
         () -> SoundEvent.createVariableRangeEvent(resource("fpv.engine_loop"))
+    );
+    public static final RegistryObject<SoundEvent> FPV_ENGINE_INTERIOR = SOUND_EVENTS.register("fpv.engine_interior",
+        () -> SoundEvent.createFixedRangeEvent(resource("fpv.engine_interior"), 8.0F)
     );
     public static final RegistryObject<SoundEvent> FPV_ENGINE_STOP = SOUND_EVENTS.register("fpv.engine_stop",
         () -> SoundEvent.createVariableRangeEvent(resource("fpv.engine_stop"))

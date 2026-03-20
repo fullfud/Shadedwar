@@ -54,6 +54,8 @@ public final class FullfudClientConfig {
         public final ForgeConfigSpec.BooleanValue fpvHideVanillaHud;
         public final ForgeConfigSpec.BooleanValue fpvHideHand;
         public final ForgeConfigSpec.IntValue fpvRenderDistanceCap;
+        public final ForgeConfigSpec.BooleanValue fpvUseLocalEntityAudio;
+        public final ForgeConfigSpec.DoubleValue fpvSoundMaxDistance;
 
         public final ForgeConfigSpec.IntValue shahedRenderDistanceCap;
         public final ForgeConfigSpec.BooleanValue shahedGhostRenderEnabled;
@@ -62,6 +64,7 @@ public final class FullfudClientConfig {
         public final ForgeConfigSpec.BooleanValue shahedGhostRenderFullBright;
         public final ForgeConfigSpec.BooleanValue shahedUseLocalEntityAudio;
         public final ForgeConfigSpec.DoubleValue shahedLocalAudioActiveThreshold;
+        public final ForgeConfigSpec.DoubleValue shahedSoundMaxDistance;
         public final ForgeConfigSpec.IntValue shahedStatusFreshnessMs;
         public final ForgeConfigSpec.IntValue shahedMonitorControlIntervalTicks;
         public final ForgeConfigSpec.DoubleValue shahedMonitorControlMaxDistance;
@@ -220,6 +223,18 @@ public final class FullfudClientConfig {
                 .defineInRange("renderDistanceCap", 256, 64, 10000);
 
             builder.pop();
+
+            builder.push("audio");
+
+            fpvUseLocalEntityAudio = builder
+                .comment("Use local FPV entity audio with Doppler, low-pass filtering, and interior sound while controlling.")
+                .define("useLocalEntityAudio", true);
+
+            fpvSoundMaxDistance = builder
+                .comment("Maximum distance in blocks at which local FPV engine sound can be heard. Set to 0 for no limit.")
+                .defineInRange("soundMaxDistance", 250.0D, 0.0D, 5000.0D);
+
+            builder.pop();
             builder.pop();
 
             builder.push("shahed");
@@ -252,11 +267,15 @@ public final class FullfudClientConfig {
 
             shahedUseLocalEntityAudio = builder
                 .comment("Use local Shahed entity audio system on client. Disable to use only remote audio packets.")
-                .define("useLocalEntityAudio", false);
+                .define("useLocalEntityAudio", true);
 
             shahedLocalAudioActiveThreshold = builder
                 .comment("Local Shahed engine activity threshold.")
                 .defineInRange("localAudioActiveThreshold", 0.02D, 0.0D, 1.0D);
+
+            shahedSoundMaxDistance = builder
+                .comment("Maximum distance in blocks at which local Shahed engine sound can be heard. Set to 0 for no limit.")
+                .defineInRange("soundMaxDistance", 1000.0D, 0.0D, 5000.0D);
 
             builder.pop();
 
@@ -341,7 +360,7 @@ public final class FullfudClientConfig {
 
             droneAudioMuteRemoteShahedWhenLoaded = builder
                 .comment("Mute remote Shahed audio when the Shahed entity is locally loaded.")
-                .define("muteRemoteShahedWhenLoaded", false);
+                .define("muteRemoteShahedWhenLoaded", true);
 
             droneAudioRemoteVolumeScale = builder
                 .comment("Volume scale multiplier for remote drone audio packets.")

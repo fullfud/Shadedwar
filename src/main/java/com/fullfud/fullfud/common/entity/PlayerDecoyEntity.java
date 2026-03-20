@@ -98,7 +98,7 @@ public class PlayerDecoyEntity extends LivingEntity {
     }
 
     private static UUID createDecoyProfileId(final UUID ownerId) {
-        return UUID.nameUUIDFromBytes(("wrbdrones:decoy:" + ownerId).getBytes(StandardCharsets.UTF_8));
+        return UUID.nameUUIDFromBytes(("fullfud:decoy:" + ownerId).getBytes(StandardCharsets.UTF_8));
     }
 
     private static GameProfile copyGameProfile(final GameProfile original, final UUID decoyProfileId) {

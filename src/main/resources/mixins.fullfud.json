@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.fullfud.fullfud.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "mixins.fullfud.refmap.json",
+  "client": [
+    "client.ChannelAccessor",
+    "client.SoundEngineAccessor",
+    "client.SoundManagerAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
