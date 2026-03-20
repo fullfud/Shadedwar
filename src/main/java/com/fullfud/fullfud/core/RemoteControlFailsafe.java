@@ -47,10 +47,7 @@ public final class RemoteControlFailsafe {
 
         if (root.contains(ShahedDroneEntity.PLAYER_REMOTE_TAG, Tag.TAG_COMPOUND)) {
             final CompoundTag tag = root.getCompound(ShahedDroneEntity.PLAYER_REMOTE_TAG);
-            final boolean active = player.containerMenu instanceof ShahedMonitorMenu menu
-                && tag.hasUUID("Drone")
-                && menu.getDroneId() != null
-                && menu.getDroneId().equals(tag.getUUID("Drone"));
+            final boolean active = ShahedDroneEntity.isRemoteControlActive(player.getServer(), player.getUUID(), tag);
             if (active) {
                 RemotePlayerProtection.touch(player);
                 forceChunkTracking(player);

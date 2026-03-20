@@ -191,11 +191,7 @@ public final class FpvClientHandler {
         final Minecraft minecraft = Minecraft.getInstance();
         if (minecraft.level == null || minecraft.player == null) {
             if (event.phase != TickEvent.Phase.END) return;
-            if (inFpvMode) {
-                inFpvMode = false;
-                destroyFpvChain();
-            }
-            restoreFov();
+            resetState();
             return;
         }
 
@@ -1199,6 +1195,16 @@ public final class FpvClientHandler {
         }
         minecraft.player.setInvisible(localPlayerInvisible);
         minecraft.player.setSilent(localPlayerSilent);
+        final UUID ownerId = minecraft.player.getUUID();
+        if (minecraft.level != null) {
+            for (final Entity entity : minecraft.level.entitiesForRendering()) {
+                if (entity == null || entity == minecraft.player || !ownerId.equals(entity.getUUID())) {
+                    continue;
+                }
+                entity.setInvisible(localPlayerInvisible);
+                entity.setSilent(localPlayerSilent);
+            }
+        }
         localPlayerStateCaptured = false;
     }
 }

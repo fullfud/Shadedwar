@@ -1874,7 +1874,14 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         for (final ServerLevel level : server.getAllLevels()) {
             final Entity entity = level.getEntity(droneId);
             if (entity instanceof ShahedDroneEntity drone) {
-                drone.forceReleaseControlFor(playerId);
+                if (playerId.equals(drone.controllingPlayer)) {
+                    drone.forceReleaseControlFor(playerId);
+                } else if (drone.controlSession != null) {
+                    final UUID controllerId = drone.controllingPlayer;
+                    if (controllerId == null || drone.getControllingPlayer() == null) {
+                        drone.endRemoteControl(null);
+                    }
+                }
                 return;
             }
         }
@@ -1888,6 +1895,27 @@ public class ShahedDroneEntity extends Entity implements GeoEntity {
         forceReleaseFromPersistentData(player.getServer(), player.getUUID(), tag);
 
         restorePlayerFromRemoteTag(player, tag);
+    }
+
+    public static boolean isRemoteControlActive(final MinecraftServer server, final UUID playerId, final CompoundTag tag) {
+        if (server == null || playerId == null || tag == null || !tag.hasUUID(PLAYER_TAG_DRONE)) {
+            return false;
+        }
+        final ServerPlayer player = server.getPlayerList().getPlayer(playerId);
+        if (!(player != null && player.containerMenu instanceof ShahedMonitorMenu menu)) {
+            return false;
+        }
+        final UUID droneId = tag.getUUID(PLAYER_TAG_DRONE);
+        if (menu.getDroneId() == null || !droneId.equals(menu.getDroneId())) {
+            return false;
+        }
+        for (final ServerLevel level : server.getAllLevels()) {
+            final Entity entity = level.getEntity(droneId);
+            if (entity instanceof ShahedDroneEntity drone) {
+                return playerId.equals(drone.controllingPlayer) && drone.controlSession != null;
+            }
+        }
+        return false;
     }
 
     private void dbg(ServerPlayer p, String msg) {
