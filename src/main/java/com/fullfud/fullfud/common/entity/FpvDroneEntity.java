@@ -95,6 +95,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Float> DATA_THRUST = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_ROLL = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Optional<UUID>> DATA_CONTROLLER = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.OPTIONAL_UUID);
+    private static final EntityDataAccessor<Boolean> DATA_REMOTE_ACTIVE = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Integer> DATA_BATTERY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Float> DATA_SIGNAL_QUALITY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_SIGNAL_RANGE_SCALE = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
@@ -103,16 +104,16 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     private static final EntityDataAccessor<Float> DATA_QY = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_QZ = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Float> DATA_QW = SynchedEntityData.defineId(FpvDroneEntity.class, EntityDataSerializers.FLOAT);
-    
     private static final EntityDimensions DRONE_SIZE = EntityDimensions.scalable(0.7F, 0.25F);
     private static final RawAnimation IDLE_ANIM = RawAnimation.begin().thenLoop("idle");
     private static final RawAnimation RUNNING_ANIM = RawAnimation.begin().thenLoop("running");
     
     private static final float YAW_SINGULARITY_PITCH_DEG = 89.0F;
     private static final double YAW_SINGULARITY_HORIZ_EPS = 1.0E-3D;
-    private static final int CLIENT_MIN_LERP_STEPS = 6;
-    private static final float CLIENT_ROTATION_SMOOTH_ALPHA = 0.35F;
-
+    private static final float CLIENT_ROTATION_IDLE_ALPHA = 0.55F;
+    private static final float CLIENT_ROTATION_MIN_ALPHA = 0.35F;
+    private static final float CLIENT_ROTATION_MAX_ALPHA = 0.72F;
+    private static final float CLIENT_ROTATION_SNAP_DOT = 0.15F;
     private static final double TICK_SECONDS = 1.0D / 20.0D;
     
     private static final int MAX_BATTERY_TICKS = 12000;
@@ -241,6 +242,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.entityData.define(DATA_THRUST, 0.0F);
         this.entityData.define(DATA_ROLL, 0.0F);
         this.entityData.define(DATA_CONTROLLER, Optional.empty());
+        this.entityData.define(DATA_REMOTE_ACTIVE, false);
         this.entityData.define(DATA_BATTERY, MAX_BATTERY_TICKS);
         this.entityData.define(DATA_SIGNAL_QUALITY, 1.0F);
         this.entityData.define(DATA_SIGNAL_RANGE_SCALE, 1.0F);
@@ -309,10 +311,12 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         if (tag.hasUUID(TAG_OWNER)) {
             owner = tag.getUUID(TAG_OWNER);
         }
-        if (tag.hasUUID(TAG_CONTROLLER)) {
-            entityData.set(DATA_CONTROLLER, Optional.of(tag.getUUID(TAG_CONTROLLER)));
-            controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
-        }
+        // Remote-control state must never survive a world save. Restoring it later can
+        // poison the world with stale controller bindings and broken camera resolution.
+        entityData.set(DATA_CONTROLLER, Optional.empty());
+        session = null;
+        controlTimeoutTicks = 0;
+        syncRemoteActiveState();
         keepChunksLoadedWithoutPlayer = tag.getBoolean(TAG_KEEP_CHUNKS);
         if (tag.contains(TAG_SIGNAL_RANGE_SCALE, Tag.TAG_DOUBLE) || tag.contains(TAG_SIGNAL_PENETRATION_SCALE, Tag.TAG_DOUBLE)) {
             final double rangeScale = tag.contains(TAG_SIGNAL_RANGE_SCALE, Tag.TAG_DOUBLE)
@@ -322,19 +326,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 ? tag.getDouble(TAG_SIGNAL_PENETRATION_SCALE)
                 : signalPenetrationScale;
             setSignalScales(rangeScale, penetrationScale);
-        }
-        
-        if (tag.contains(TAG_SESSION_DIM)) {
-            final var dimId = net.minecraft.resources.ResourceLocation.tryParse(tag.getString(TAG_SESSION_DIM));
-            if (dimId != null) {
-                session = new ControlSession(
-                    ResourceKey.create(Registries.DIMENSION, dimId),
-                    new Vec3(tag.getDouble(TAG_SESSION_X), tag.getDouble(TAG_SESSION_Y), tag.getDouble(TAG_SESSION_Z)),
-                    tag.getFloat(TAG_SESSION_YAW),
-                    tag.getFloat(TAG_SESSION_PITCH),
-                    GameType.byId(tag.getInt(TAG_SESSION_GAMEMODE))
-                );
-            }
         }
     }
 
@@ -355,17 +346,6 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         
         if (owner != null) {
             tag.putUUID(TAG_OWNER, owner);
-        }
-        entityData.get(DATA_CONTROLLER).ifPresent(id -> tag.putUUID(TAG_CONTROLLER, id));
-        
-        if (session != null) {
-            tag.putString(TAG_SESSION_DIM, session.dimension.location().toString());
-            tag.putDouble(TAG_SESSION_X, session.origin.x);
-            tag.putDouble(TAG_SESSION_Y, session.origin.y);
-            tag.putDouble(TAG_SESSION_Z, session.origin.z);
-            tag.putFloat(TAG_SESSION_YAW, session.yaw);
-            tag.putFloat(TAG_SESSION_PITCH, session.pitch);
-            tag.putInt(TAG_SESSION_GAMEMODE, session.gameType.getId());
         }
         tag.putBoolean(TAG_KEEP_CHUNKS, keepChunksLoadedWithoutPlayer);
         tag.putDouble(TAG_SIGNAL_RANGE_SCALE, getSignalRangeScale());
@@ -430,6 +410,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 }
             }
         }
+        syncRemoteActiveState();
         
         final boolean shouldForceChunks = keepChunksLoadedWithoutPlayer || owner != null || entityData.get(DATA_CONTROLLER).isPresent();
         if (shouldForceChunks) {
@@ -677,7 +658,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         this.lerpZ = z;
         this.lerpYRot = yaw;
         this.lerpXRot = pitch;
-        this.lerpSteps = Math.max(CLIENT_MIN_LERP_STEPS, posRotationIncrements);
+        this.lerpSteps = posRotationIncrements;
     }
 
     private void updateQuaternionFromEuler() {
@@ -1188,6 +1169,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         return entityData.get(DATA_CONTROLLER).map(player.getUUID()::equals).orElse(false);
     }
 
+    private void syncRemoteActiveState() {
+        entityData.set(DATA_REMOTE_ACTIVE, entityData.get(DATA_CONTROLLER).isPresent() && session != null);
+    }
+
     public boolean beginControl(final ServerPlayer player) {
         if (owner != null && !owner.equals(player.getUUID())) {
             return false;
@@ -1197,6 +1182,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         }
         if (isController(player) && session != null) {
             controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
+            syncRemoteActiveState();
             if (!isRemoteStateValidFor(player)) {
                 writeRemoteTag(player);
             }
@@ -1222,6 +1208,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         entityData.set(DATA_CONTROLLER, Optional.of(player.getUUID()));
         controlTimeoutTicks = CONTROL_TIMEOUT_TICKS;
         session = new ControlSession(player.level().dimension(), player.position(), player.getYRot(), player.getXRot(), player.gameMode.getGameModeForPlayer());
+        syncRemoteActiveState();
         writeRemoteTag(player);
         RemotePlayerProtection.touch(player, this, REMOTE_PROTECTION_RADIUS);
         PlayerDecoyManager.createDecoy(player, this);
@@ -1278,6 +1265,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         setArmed(false);
         
         session = null;
+        syncRemoteActiveState();
         releaseChunkTicket();
     }
 
@@ -1635,7 +1623,7 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
     public int getBatteryTicks() {
         return entityData.get(DATA_BATTERY);
     }
-    
+
     public int getBatteryPercent() {
         return (int) ((getBatteryTicks() / (float) MAX_BATTERY_TICKS) * 100);
     }
@@ -1646,6 +1634,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
 
     public UUID getControllerId() {
         return entityData.get(DATA_CONTROLLER).orElse(null);
+    }
+
+    public boolean isRemoteControlActiveSynced() {
+        return entityData.get(DATA_REMOTE_ACTIVE);
     }
 
     public void setOwner(final ServerPlayer player) {
@@ -1742,6 +1734,10 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
         return (float) Mth.rotLerp(partialTick, this.xRotO, this.getXRot());
     }
 
+    public float getVisualYaw(final float partialTick) {
+        return Mth.wrapDegrees(Mth.rotLerp(partialTick, this.yRotO, this.getYRot()));
+    }
+
     @Override
     public EntityDimensions getDimensions(final Pose pose) {
         return DRONE_SIZE;
@@ -1790,19 +1786,25 @@ public class FpvDroneEntity extends Entity implements GeoEntity {
                 drone.lerpSteps--;
             }
 
-            final float dot = drone.qRotation.x * syncedQ.x
+            float dot = drone.qRotation.x * syncedQ.x
                 + drone.qRotation.y * syncedQ.y
                 + drone.qRotation.z * syncedQ.z
                 + drone.qRotation.w * syncedQ.w;
+            if (!Float.isFinite(dot)) {
+                dot = 1.0F;
+            }
             if (dot < 0.0F) {
                 syncedQ.mul(-1.0F);
+                dot = -dot;
             }
 
-            final float absDot = Math.abs(dot);
-            if (absDot < 0.2F) {
+            if (dot < CLIENT_ROTATION_SNAP_DOT) {
                 drone.qRotation.set(syncedQ);
             } else {
-                drone.qRotation.slerp(syncedQ, CLIENT_ROTATION_SMOOTH_ALPHA);
+                final float alpha = drone.lerpSteps > 0
+                    ? Mth.clamp(2.4F / (float) Math.max(1, drone.lerpSteps), CLIENT_ROTATION_MIN_ALPHA, CLIENT_ROTATION_MAX_ALPHA)
+                    : CLIENT_ROTATION_IDLE_ALPHA;
+                drone.qRotation.slerp(syncedQ, alpha);
                 drone.qRotation.normalize();
             }
             drone.applyVisualOrientationFromQuaternion(drone.qRotation);

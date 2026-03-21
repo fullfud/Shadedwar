@@ -13,6 +13,7 @@ import com.fullfud.fullfud.core.config.FullfudClientConfig;
 import com.fullfud.fullfud.core.network.FullfudNetwork;
 import com.fullfud.fullfud.core.network.packet.FpvControlPacket;
 import com.fullfud.fullfud.core.network.packet.FpvReleasePacket;
+import com.mojang.logging.LogUtils;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.shaders.Uniform;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -52,15 +53,20 @@ import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+import org.slf4j.Logger;
 import org.lwjgl.glfw.GLFW;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
 @OnlyIn(Dist.CLIENT)
 public final class FpvClientHandler {
+    private static final Logger CAMERA_SMOOTHING_LOGGER = LogUtils.getLogger();
+    private static final boolean CAMERA_SMOOTHING_DEBUG_ENABLED = false;
     private static final KeyMapping FPV_YAW_LEFT = new KeyMapping("key.fullfud.fpv_yaw_left", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_Q, "key.categories.fullfud");
     private static final KeyMapping FPV_YAW_RIGHT = new KeyMapping("key.fullfud.fpv_yaw_right", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_E, "key.categories.fullfud");
     private static final KeyMapping FPV_ARM = new KeyMapping("key.fullfud.fpv_arm", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.fullfud");
@@ -113,6 +119,7 @@ public final class FpvClientHandler {
     private static boolean forcedFov;
     private static PostChain fpvPostChain;
     private static Field passesFieldCache;
+    private static Method cameraSetPositionMethodCache;
     private static int lastChainWidth = -1;
     private static int lastChainHeight = -1;
     private static float clientTime = 0.0F;
@@ -126,6 +133,7 @@ public final class FpvClientHandler {
     private static final double CAMERA_YAW_SINGULARITY_HORIZ_EPS = 1.0E-3D;
     private static final Quaternionf smoothedCameraQuaternion = new Quaternionf();
     private static final Quaternionf targetCameraQuaternion = new Quaternionf();
+    private static final Quaternionf cameraAnglesQuaternionScratch = new Quaternionf();
     private static final Quaternionf zeroRollQuaternionScratch = new Quaternionf();
     private static final Vector3f cameraForwardScratch = new Vector3f();
     private static final Vector3f cameraUpScratch = new Vector3f();
@@ -197,6 +205,14 @@ public final class FpvClientHandler {
         }
 
         final FpvDroneEntity drone = resolveActiveControlledDrone(minecraft);
+        if (event.phase == TickEvent.Phase.START) {
+            if (isFpvActive(minecraft, drone)) {
+                updateSmoothedCameraState(drone, event.renderTickTime);
+            } else {
+                invalidateSmoothedCameraState();
+            }
+            return;
+        }
 
         if (event.phase != TickEvent.Phase.END) return;
 
@@ -217,9 +233,8 @@ public final class FpvClientHandler {
         }
 
         inFpvMode = true;
-        final double shaderTimeScale = FullfudClientConfig.CLIENT.fpvPostShaderTimeScale.get();
-        clientTime += event.renderTickTime * (float) shaderTimeScale;
-
+        final float shaderTimeScale = (float) (double) FullfudClientConfig.CLIENT.fpvPostShaderTimeScale.get();
+        clientTime += event.renderTickTime * shaderTimeScale;
         if (shouldUsePostShader()) {
             ensureFpvChain(minecraft);
             if (fpvPostChain != null) {
@@ -243,9 +258,13 @@ public final class FpvClientHandler {
             lastChainHeight = mc.getWindow().getHeight();
             fpvPostChain.resize(lastChainWidth, lastChainHeight);
             passesFieldCache = null;
+            clientTime = 0.0F;
         } catch (Exception e) {
             fpvPostChain = null;
             passesFieldCache = null;
+            lastChainWidth = -1;
+            lastChainHeight = -1;
+            clientTime = 0.0F;
         }
     }
 
@@ -274,6 +293,7 @@ public final class FpvClientHandler {
         passesFieldCache = null;
         lastChainWidth = -1;
         lastChainHeight = -1;
+        clientTime = 0.0F;
     }
 
     private static void onClientTick(final TickEvent.ClientTickEvent event) {
@@ -626,11 +646,9 @@ public final class FpvClientHandler {
                     if (List.class.isAssignableFrom(f.getType())) {
                         f.setAccessible(true);
                         Object obj = f.get(fpvPostChain);
-                        if (obj instanceof List<?> list && !list.isEmpty()) {
-                            if (list.get(0) instanceof PostPass) {
-                                passesFieldCache = f;
-                                break;
-                            }
+                        if (obj instanceof List<?> list && !list.isEmpty() && list.get(0) instanceof PostPass) {
+                            passesFieldCache = f;
+                            break;
                         }
                     }
                 }
@@ -639,11 +657,15 @@ public final class FpvClientHandler {
             if (passesFieldCache != null) {
                 List<PostPass> passes = (List<PostPass>) passesFieldCache.get(fpvPostChain);
                 for (final PostPass pass : passes) {
-                    final Uniform signalU = pass.getEffect().getUniform("SignalQuality");
-                    if (signalU != null) signalU.set(signalQuality);
+                    final Uniform signalQualityU = pass.getEffect().getUniform("SignalQuality");
+                    if (signalQualityU != null) {
+                        signalQualityU.set(signalQuality);
+                    }
 
                     final Uniform timeU = pass.getEffect().getUniform("Time");
-                    if (timeU != null) timeU.set(clientTime);
+                    if (timeU != null) {
+                        timeU.set(clientTime);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -735,6 +757,12 @@ public final class FpvClientHandler {
 
         final Vec3 targetPosition = drone.getEyePosition(clampedPartial);
         final UUID droneId = drone.getUUID();
+        final Quaternionf previousSmoothQuaternion = CAMERA_SMOOTHING_DEBUG_ENABLED
+            ? new Quaternionf(smoothedCameraQuaternion)
+            : null;
+        final double previousSmoothX = smoothedCameraX;
+        final double previousSmoothY = smoothedCameraY;
+        final double previousSmoothZ = smoothedCameraZ;
         if (!smoothedCameraInitialized || !Objects.equals(smoothedCameraDroneId, droneId)) {
             smoothedCameraQuaternion.set(targetCameraQuaternion);
             smoothedCameraDroneId = droneId;
@@ -742,6 +770,18 @@ public final class FpvClientHandler {
             smoothedCameraX = targetPosition.x;
             smoothedCameraY = targetPosition.y;
             smoothedCameraZ = targetPosition.z;
+            logCameraSmoothingDebug(
+                drone,
+                targetPosition,
+                previousSmoothQuaternion,
+                previousSmoothX,
+                previousSmoothY,
+                previousSmoothZ,
+                1.0F,
+                1.0F,
+                "init",
+                clampedPartial
+            );
             return;
         }
 
@@ -749,6 +789,8 @@ public final class FpvClientHandler {
             + smoothedCameraQuaternion.y * targetCameraQuaternion.y
             + smoothedCameraQuaternion.z * targetCameraQuaternion.z
             + smoothedCameraQuaternion.w * targetCameraQuaternion.w;
+        float alpha = 1.0F;
+        String mode = "snap";
         if (dot < 0.0F) {
             targetCameraQuaternion.mul(-1.0F);
             dot = -dot;
@@ -757,7 +799,9 @@ public final class FpvClientHandler {
         if (!Float.isFinite(dot) || dot < CAMERA_ROTATION_SNAP_DOT) {
             smoothedCameraQuaternion.set(targetCameraQuaternion);
         } else {
-            smoothedCameraQuaternion.slerp(targetCameraQuaternion, CAMERA_ROTATION_SMOOTH_ALPHA);
+            alpha = CAMERA_ROTATION_SMOOTH_ALPHA;
+            mode = "slerp";
+            smoothedCameraQuaternion.slerp(targetCameraQuaternion, alpha);
             smoothedCameraQuaternion.normalize();
         }
 
@@ -774,16 +818,28 @@ public final class FpvClientHandler {
             smoothedCameraY = Mth.lerp(CAMERA_POSITION_SMOOTH_ALPHA, smoothedCameraY, targetPosition.y);
             smoothedCameraZ = Mth.lerp(CAMERA_POSITION_SMOOTH_ALPHA, smoothedCameraZ, targetPosition.z);
         }
+
+        logCameraSmoothingDebug(
+            drone,
+            targetPosition,
+            previousSmoothQuaternion,
+            previousSmoothX,
+            previousSmoothY,
+            previousSmoothZ,
+            dot,
+            alpha,
+            mode,
+            clampedPartial
+        );
     }
 
-    private static CameraAngles resolveSmoothedCameraOrientation(final float fallbackYaw) {
-        if (!smoothedCameraInitialized) {
-            return new CameraAngles(fallbackYaw, 0.0F, 0.0F);
+    private static CameraAngles resolveCameraAnglesFromQuaternion(final Quaternionf quaternion, final float fallbackYaw) {
+        if (!hasFiniteQuaternion(quaternion)) {
+            return new CameraAngles(Mth.wrapDegrees(fallbackYaw), 0.0F, 0.0F);
         }
-
         cameraForwardScratch.set(0.0F, 0.0F, 1.0F);
         cameraUpScratch.set(0.0F, 1.0F, 0.0F);
-        final Quaternionf orientation = targetCameraQuaternion.set(smoothedCameraQuaternion);
+        final Quaternionf orientation = cameraAnglesQuaternionScratch.set(quaternion);
         orientation.transform(cameraForwardScratch);
         orientation.transform(cameraUpScratch);
 
@@ -822,6 +878,184 @@ public final class FpvClientHandler {
         );
     }
 
+    private static CameraAngles resolveSmoothedCameraOrientation(final float fallbackYaw) {
+        if (!smoothedCameraInitialized) {
+            return new CameraAngles(fallbackYaw, 0.0F, 0.0F);
+        }
+        return resolveCameraAnglesFromQuaternion(smoothedCameraQuaternion, fallbackYaw);
+    }
+
+    static Quaternionf resolveRenderCameraQuaternion(final FpvDroneEntity drone, final float partialTick) {
+        if (drone == null) {
+            return new Quaternionf();
+        }
+        if (smoothedCameraInitialized
+            && Objects.equals(smoothedCameraDroneId, drone.getUUID())
+            && hasFiniteQuaternion(smoothedCameraQuaternion)) {
+            return new Quaternionf(smoothedCameraQuaternion);
+        }
+        return drone.getCameraQuaternion(Mth.clamp(partialTick, 0.0F, 1.0F));
+    }
+
+    static Vec3 resolveRenderCameraPosition(final FpvDroneEntity drone, final float partialTick) {
+        if (drone == null) {
+            return Vec3.ZERO;
+        }
+        if (smoothedCameraInitialized
+            && Objects.equals(smoothedCameraDroneId, drone.getUUID())
+            && Double.isFinite(smoothedCameraX)
+            && Double.isFinite(smoothedCameraY)
+            && Double.isFinite(smoothedCameraZ)) {
+            return new Vec3(smoothedCameraX, smoothedCameraY, smoothedCameraZ);
+        }
+        return drone.getEyePosition(Mth.clamp(partialTick, 0.0F, 1.0F));
+    }
+
+    static CameraAngles resolveRenderCameraAngles(final FpvDroneEntity drone, final float partialTick) {
+        if (drone == null) {
+            return new CameraAngles(0.0F, 0.0F, 0.0F);
+        }
+
+        final float clampedPartial = Mth.clamp(partialTick, 0.0F, 1.0F);
+        float fallbackYaw = drone.getVisualYaw(clampedPartial);
+        if (!Float.isFinite(fallbackYaw)) {
+            fallbackYaw = lastResolvedCameraYaw;
+        }
+
+        final CameraAngles smoothedOrientation = resolveSmoothedCameraOrientation(fallbackYaw);
+        if (smoothedCameraInitialized
+            && Objects.equals(smoothedCameraDroneId, drone.getUUID())
+            && Float.isFinite(smoothedOrientation.yaw())
+            && Float.isFinite(smoothedOrientation.pitch())
+            && Float.isFinite(smoothedOrientation.roll())) {
+            return new CameraAngles(
+                Mth.wrapDegrees(smoothedOrientation.yaw()),
+                Mth.wrapDegrees(smoothedOrientation.pitch()),
+                Mth.wrapDegrees(smoothedOrientation.roll())
+            );
+        }
+
+        float yaw = fallbackYaw;
+        float pitch = drone.getVisualPitch(clampedPartial);
+        float roll = drone.getVisualRoll(clampedPartial);
+        if (!Float.isFinite(yaw)) {
+            yaw = drone.getYRot();
+        }
+        if (!Float.isFinite(pitch)) {
+            pitch = drone.getXRot();
+        }
+        if (!Float.isFinite(roll)) {
+            roll = drone.getCameraRoll(clampedPartial);
+        }
+        return new CameraAngles(
+            Mth.wrapDegrees(yaw),
+            Mth.wrapDegrees(pitch),
+            Mth.wrapDegrees(roll)
+        );
+    }
+
+    private static boolean hasFiniteQuaternion(final Quaternionf quaternion) {
+        return quaternion != null
+            && Float.isFinite(quaternion.x)
+            && Float.isFinite(quaternion.y)
+            && Float.isFinite(quaternion.z)
+            && Float.isFinite(quaternion.w);
+    }
+
+    private static void logCameraSmoothingDebug(
+        final FpvDroneEntity drone,
+        final Vec3 targetPosition,
+        final Quaternionf previousSmoothQuaternion,
+        final double previousSmoothX,
+        final double previousSmoothY,
+        final double previousSmoothZ,
+        final float dot,
+        final float alpha,
+        final String mode,
+        final float partialTick
+    ) {
+        if (!CAMERA_SMOOTHING_DEBUG_ENABLED || previousSmoothQuaternion == null) {
+            return;
+        }
+        final CameraAngles targetAngles = resolveCameraAnglesFromQuaternion(targetCameraQuaternion, drone.getYRot());
+        final CameraAngles previousAngles = resolveCameraAnglesFromQuaternion(previousSmoothQuaternion, targetAngles.yaw());
+        final CameraAngles smoothAngles = resolveCameraAnglesFromQuaternion(smoothedCameraQuaternion, targetAngles.yaw());
+
+        final float stepYaw = Mth.wrapDegrees(smoothAngles.yaw() - previousAngles.yaw());
+        final float stepPitch = Mth.wrapDegrees(smoothAngles.pitch() - previousAngles.pitch());
+        final float stepRoll = Mth.wrapDegrees(smoothAngles.roll() - previousAngles.roll());
+        final float remainYaw = Mth.wrapDegrees(targetAngles.yaw() - smoothAngles.yaw());
+        final float remainPitch = Mth.wrapDegrees(targetAngles.pitch() - smoothAngles.pitch());
+        final float remainRoll = Mth.wrapDegrees(targetAngles.roll() - smoothAngles.roll());
+
+        final double stepDx = smoothedCameraX - previousSmoothX;
+        final double stepDy = smoothedCameraY - previousSmoothY;
+        final double stepDz = smoothedCameraZ - previousSmoothZ;
+        final double stepDist = Math.sqrt(stepDx * stepDx + stepDy * stepDy + stepDz * stepDz);
+        final double remainDx = targetPosition.x - smoothedCameraX;
+        final double remainDy = targetPosition.y - smoothedCameraY;
+        final double remainDz = targetPosition.z - smoothedCameraZ;
+        final double remainDist = Math.sqrt(remainDx * remainDx + remainDy * remainDy + remainDz * remainDz);
+
+        CAMERA_SMOOTHING_LOGGER.info(
+            "FPV_CAM dbg drone={} mode={} dot={} alpha={} pt={} target_ypr=[{}, {}, {}] smooth_ypr=[{}, {}, {}] step_ypr=[{}, {}, {}] left_ypr=[{}, {}, {}] step_pos=[{}, {}, {}, d={}] left_pos=[{}, {}, {}, d={}]",
+            drone.getUUID(),
+            mode,
+            fmt(dot),
+            fmt(alpha),
+            fmt(partialTick),
+            fmt(targetAngles.yaw()),
+            fmt(targetAngles.pitch()),
+            fmt(targetAngles.roll()),
+            fmt(smoothAngles.yaw()),
+            fmt(smoothAngles.pitch()),
+            fmt(smoothAngles.roll()),
+            fmt(stepYaw),
+            fmt(stepPitch),
+            fmt(stepRoll),
+            fmt(remainYaw),
+            fmt(remainPitch),
+            fmt(remainRoll),
+            fmt(stepDx),
+            fmt(stepDy),
+            fmt(stepDz),
+            fmt(stepDist),
+            fmt(remainDx),
+            fmt(remainDy),
+            fmt(remainDz),
+            fmt(remainDist)
+        );
+    }
+
+    private static String fmt(final double value) {
+        if (!Double.isFinite(value)) {
+            return "nan";
+        }
+        return String.format(Locale.ROOT, "%.3f", value);
+    }
+
+    private static void trySetCameraPosition(final net.minecraft.client.Camera camera, final Vec3 position) {
+        if (camera == null || position == null) {
+            return;
+        }
+        if (!Double.isFinite(position.x) || !Double.isFinite(position.y) || !Double.isFinite(position.z)) {
+            return;
+        }
+        try {
+            if (cameraSetPositionMethodCache == null) {
+                cameraSetPositionMethodCache = net.minecraft.client.Camera.class.getDeclaredMethod(
+                    "setPosition",
+                    double.class,
+                    double.class,
+                    double.class
+                );
+                cameraSetPositionMethodCache.setAccessible(true);
+            }
+            cameraSetPositionMethodCache.invoke(camera, position.x, position.y, position.z);
+        } catch (Throwable ignored) {
+        }
+    }
+
     private static void onCameraAngles(final ViewportEvent.ComputeCameraAngles event) {
         final Minecraft minecraft = Minecraft.getInstance();
         final FpvDroneEntity drone = resolveActiveControlledDrone(minecraft);
@@ -830,23 +1064,18 @@ public final class FpvClientHandler {
             return;
         }
 
-        final float partialTick = Mth.clamp((float) event.getPartialTick(), 0.0F, 1.0F);
-        final FpvDroneEntity.CameraOrientation orientation = drone.getCameraOrientation(partialTick);
+        final CameraAngles orientation = resolveRenderCameraAngles(drone, (float) event.getPartialTick());
         float yaw = orientation.yaw();
-        float pitch = orientation.pitch();
-        float roll = orientation.roll();
+        final float pitch = orientation.pitch();
+        final float roll = orientation.roll();
 
         if (!Float.isFinite(yaw)) {
-            yaw = drone.getYRot();
-        }
-        if (!Float.isFinite(pitch)) {
-            pitch = drone.getXRot();
-        }
-        if (!Float.isFinite(roll)) {
-            roll = drone.getCameraRoll(partialTick);
+            yaw = lastResolvedCameraYaw;
+        } else {
+            lastResolvedCameraYaw = yaw;
         }
 
-        lastResolvedCameraYaw = yaw;
+        trySetCameraPosition(event.getCamera(), resolveRenderCameraPosition(drone, (float) event.getPartialTick()));
 
         final CameraType cameraType = minecraft != null && minecraft.options != null
             ? minecraft.options.getCameraType()
@@ -864,7 +1093,7 @@ public final class FpvClientHandler {
         event.setRoll(roll);
     }
 
-    private record CameraAngles(float yaw, float pitch, float roll) {
+    static record CameraAngles(float yaw, float pitch, float roll) {
     }
 
     private static void onRenderGui(final net.minecraftforge.client.event.RenderGuiEvent.Post event) {
@@ -1023,7 +1252,7 @@ public final class FpvClientHandler {
             return false;
         }
         if (minecraft.getCameraEntity() instanceof FpvDroneEntity cameraDrone) {
-            return !cameraDrone.isRemoved() && cameraDrone.isAlive();
+            return !cameraDrone.isRemoved() && cameraDrone.isAlive() && isFpvActive(minecraft, cameraDrone);
         }
         final FpvDroneEntity resolved = resolveActiveControlledDrone(minecraft);
         if (resolved != null) {
@@ -1060,7 +1289,9 @@ public final class FpvClientHandler {
             return false;
         }
         final UUID controller = drone.getControllerId();
-        return controller != null && controller.equals(minecraft.player.getUUID());
+        return controller != null
+            && controller.equals(minecraft.player.getUUID())
+            && drone.isRemoteControlActiveSynced();
     }
 
     private static void invalidateResolvedDroneCache() {

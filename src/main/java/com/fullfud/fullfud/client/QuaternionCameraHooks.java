@@ -45,7 +45,7 @@ public final class QuaternionCameraHooks {
             return false;
         }
 
-        final Quaternionf cameraQuaternion = drone.getCameraQuaternion(partialTick);
+        final Quaternionf cameraQuaternion = FpvClientHandler.resolveRenderCameraQuaternion(drone, partialTick);
         final Vector3f forward = new Vector3f(0.0F, 0.0F, 1.0F);
         final Vector3f up = new Vector3f(0.0F, 1.0F, 0.0F);
         final Vector3f localX = new Vector3f(1.0F, 0.0F, 0.0F);
@@ -61,8 +61,6 @@ public final class QuaternionCameraHooks {
         final Quaternionf poseRotation = viewMatrix.getNormalizedRotation(new Quaternionf());
         poseStack.mulPose(poseRotation);
 
-        final FpvDroneEntity.CameraOrientation orientation = drone.getCameraOrientation(partialTick);
-        camera.setAnglesInternal(orientation.yaw(), orientation.pitch());
         camera.rotation().set(cameraQuaternion);
         camera.getLookVector().set(forward);
         camera.getUpVector().set(up);

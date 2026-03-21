@@ -72,7 +72,6 @@ public class DronePhysics {
     private float totalInertia;
     private float motorThermalCapacity;
     private float motorSurfaceArea;
-
     private final float[] motorAngularVelocity = new float[4];
     private final float[] motorHeatState = new float[4];
     private final float[] motorTempK = new float[4];

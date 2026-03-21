@@ -155,7 +155,6 @@ public final class FpvOsdHudRenderer {
         if (lastBatteryTicks < 0) {
             lastBatteryTicks = batteryTicks;
         }
-        final int consumedTicks = Math.max(0, lastBatteryTicks - batteryTicks);
         lastBatteryTicks = batteryTicks;
         if (batteryWindowStartTicks < 0) {
             batteryWindowStartTicks = batteryTicks;
@@ -195,7 +194,8 @@ public final class FpvOsdHudRenderer {
         tempSmooth += (tempTarget - tempSmooth) * 0.07f;
         final int temperatureC = Mth.clamp(Math.round(tempSmooth), -20, 120);
 
-        float rawHeading = normalizeDegrees(drone.getCameraOrientation(minecraft.getPartialTick()).yaw());
+        final float partialTick = minecraft.getPartialTick();
+        float rawHeading = normalizeDegrees(drone.getVisualYaw(partialTick));
         if (!Float.isFinite(rawHeading)) {
             rawHeading = 0.0f;
         }
@@ -210,9 +210,9 @@ public final class FpvOsdHudRenderer {
         final float relativeHomeHeading = Mth.wrapDegrees(bearingToHome - headingSmooth);
         final int homeDirectionSymbol = directionArrowSymbol(relativeHomeHeading);
 
-        final float pitch = Mth.clamp(drone.getVisualPitch(minecraft.getPartialTick()), -75.0f, 75.0f);
-        final float targetHorizonOffsetPx = -(pitch / 75.0f) * (cellH * 2.0f);
-        horizonOffsetSmoothPx += (targetHorizonOffsetPx - horizonOffsetSmoothPx) * 0.18f;
+        final float roll = drone.getVisualRoll(partialTick);
+        final float pitch = Mth.clamp(drone.getVisualPitch(partialTick), -75.0f, 75.0f);
+        final float horizonOffsetPx = -pitch * 2.5f;
 
         final String craftName = sanitizeCraftName(
                 minecraft.player != null ? minecraft.player.getName().getString() : "FULLFUD5"
@@ -291,7 +291,7 @@ public final class FpvOsdHudRenderer {
                 OSD_GLYPH_SCALE
         );
         drawCrosshair(guiGraphics, gridX, gridY, cellW, cellH, 14, 7);
-        drawHorizon(guiGraphics, gridX, gridY, cellW, cellH, 14, 7, horizonOffsetSmoothPx);
+        drawHorizon(guiGraphics, gridX, gridY, cellW, cellH, 14, 7, horizonOffsetPx, roll);
         drawCodesAt(
                 guiGraphics,
                 guiW - edgeMarginPx - codesWidth(homeCodes, OSD_GLYPH_SCALE),
@@ -374,23 +374,25 @@ public final class FpvOsdHudRenderer {
             final int cellH,
             final int baseX,
             final int baseY,
-            final float offsetPx
+            final float offsetPx,
+            final float rollDegrees
     ) {
-        int hudWidth = 7;
-        int hudHeight = 3;
-        for (int dy = -hudHeight; dy <= hudHeight; dy++) {
-            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX - hudWidth, baseY + dy, SYM_AH_DECORATION, 0, 1.0f);
-            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + hudWidth, baseY + dy, SYM_AH_DECORATION, 0, 1.0f);
-        }
-        drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX - hudWidth + 1, baseY, SYM_AH_LEFT, 0, 1.0f);
-        drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + hudWidth - 1, baseY, SYM_AH_RIGHT, 0, 1.0f);
-
-        int totalOffsetPx = (cellH / 2) + Math.round(offsetPx);
-        int lineCellOffset = totalOffsetPx / cellH;
-        int linePixelOffset = totalOffsetPx - (lineCellOffset * cellH);
-        int lineY = baseY + lineCellOffset;
+        final int x = gridX + baseX * cellW;
+        final int y = gridY + baseY * cellH;
+        final int centerX = x + cellW;
+        final int centerY = y + cellH;
+        final int glyphW = glyphWidth(1.0f);
+        final int glyphH = glyphHeight(1.0f);
+        final float radians = (float) Math.toRadians(-rollDegrees);
+        final float cos = Mth.cos(radians);
+        final float sin = Mth.sin(radians);
         for (int dx = -4; dx <= 4; dx++) {
-            drawGlyphInCell(guiGraphics, gridX, gridY, cellW, cellH, baseX + dx, lineY, SYM_AH_BAR9_0 + 4, linePixelOffset, 1.0f);
+            final float localX = dx * cellW;
+            final float rotatedX = localX * cos - offsetPx * sin;
+            final float rotatedY = localX * sin + offsetPx * cos;
+            final int glyphX = Math.round(centerX + rotatedX - (glyphW / 2.0f));
+            final int glyphY = Math.round(centerY + rotatedY - (glyphH / 2.0f));
+            GLYPH_FONT.drawCodeScaled(guiGraphics, SYM_AH_BAR9_0 + 4, glyphX, glyphY, 1.0f, OSD_FG_COLOR, OSD_BG_COLOR);
         }
     }
 

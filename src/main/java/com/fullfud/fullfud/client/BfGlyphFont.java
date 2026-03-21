@@ -113,13 +113,25 @@ public class BfGlyphFont {
         int[] glyph = glyphs[glyphIndex];
         for (int py = 0; py < GLYPH_HEIGHT; py++) {
             int rowStart = py * GLYPH_WIDTH;
-            for (int px = 0; px < GLYPH_WIDTH; px++) {
+            int px = 0;
+            while (px < GLYPH_WIDTH) {
                 int value = glyph[rowStart + px];
-                if (value == 2) {
-                    guiGraphics.fill(x + px, y + py, x + px + 1, y + py + 1, foregroundColor);
-                } else if (value == 0) {
-                    guiGraphics.fill(x + px, y + py, x + px + 1, y + py + 1, backgroundColor);
+                if (value != 2 && value != 0) {
+                    px++;
+                    continue;
                 }
+                int runStart = px;
+                px++;
+                while (px < GLYPH_WIDTH && glyph[rowStart + px] == value) {
+                    px++;
+                }
+                guiGraphics.fill(
+                    x + runStart,
+                    y + py,
+                    x + px,
+                    y + py + 1,
+                    value == 2 ? foregroundColor : backgroundColor
+                );
             }
         }
     }
@@ -141,13 +153,20 @@ public class BfGlyphFont {
                 y1 = y0 + 1;
             }
             int rowStart = py * GLYPH_WIDTH;
-            for (int px = 0; px < GLYPH_WIDTH; px++) {
+            int px = 0;
+            while (px < GLYPH_WIDTH) {
                 int value = glyph[rowStart + px];
                 if (value != 2 && value != 0) {
+                    px++;
                     continue;
                 }
-                int x0 = x + Math.round(px * scale);
-                int x1 = x + Math.round((px + 1) * scale);
+                int runStart = px;
+                px++;
+                while (px < GLYPH_WIDTH && glyph[rowStart + px] == value) {
+                    px++;
+                }
+                int x0 = x + Math.round(runStart * scale);
+                int x1 = x + Math.round(px * scale);
                 if (x1 <= x0) {
                     x1 = x0 + 1;
                 }
